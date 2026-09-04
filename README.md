@@ -37,7 +37,7 @@ Native orchestration exists, but it is secondary to the distributed OS foundatio
 ### Build
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/nexusos.git
+git clone https://github.com/flyingwest/nexusos-phase2.git
 cd nexusos
 make build   # or: (cd coordination && go build -o ../bin/coordinator ./cmd/coordinator && go build -o ../bin/nexusctl ./cmd/nexusctl)
 ```
@@ -195,11 +195,11 @@ git init
 git add .
 git commit -m "Phase 2 freeze: harden tokens + TLS"
 git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/nexusos.git
+git remote add origin https://github.com/flyingwest/nexusos-phase2.git
 git push -u origin main
 ```
 
-Replace `YOUR_USERNAME` with your GitHub username.
+Replace `flyingwest` with your GitHub username.
 
 You own the repository. This codebase is released under the **Apache License 2.0**.
 
