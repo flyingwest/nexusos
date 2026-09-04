@@ -56,6 +56,10 @@ sudo ./image/build.sh --dev-smoke
 - Explain *why* in the PR description
 - Do not commit built binaries under `bin/`
 
+## Contributors
+
+See [`CONTRIBUTORS.md`](CONTRIBUTORS.md) for the project maintainer and how to be listed.
+
 ## Code of conduct
 
 Be respectful. This is an infrastructure project that aims to stay pragmatic and usable.

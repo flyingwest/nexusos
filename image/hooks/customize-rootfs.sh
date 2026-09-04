@@ -4,15 +4,25 @@ set -euo pipefail
 ROOTFS="${1:?rootfs path}"
 DEV_SMOKE="${2:-0}"
 
-install -d -m 0755 "$ROOTFS/etc/nexusos" "$ROOTFS/var/lib/nexusos" "$ROOTFS/usr/local/bin" "$ROOTFS/usr/local/lib/nexusos"
+install -d -m 0755 "$ROOTFS/etc/nexusos" "$ROOTFS/var/lib/nexusos" "$ROOTFS/usr/local/bin" \
+  "$ROOTFS/usr/local/sbin" "$ROOTFS/usr/local/lib/nexusos"
 
 # Enable serial getty for QEMU -serial stdio
 if [[ -d "$ROOTFS/etc/systemd/system" ]]; then
   chroot "$ROOTFS" systemctl enable containerd.service || true
-  chroot "$ROOTFS" systemctl enable nexusos-coordinator.service || true
   chroot "$ROOTFS" systemctl enable nexusos-ready.service || true
   chroot "$ROOTFS" systemctl enable ssh.service || true
   chroot "$ROOTFS" systemctl enable serial-getty@ttyS0.service || true
+  if [[ "$DEV_SMOKE" == "1" ]]; then
+    # Smoke: auto-start coordinator with --dev (see unit override below).
+    chroot "$ROOTFS" systemctl enable nexusos-coordinator.service || true
+    chroot "$ROOTFS" systemctl disable nexusos-firstboot.service 2>/dev/null || true
+  else
+    # Production: do NOT enable coordinator until provisioned.
+    # firstboot prints serial instructions when tokens/TLS are missing.
+    chroot "$ROOTFS" systemctl disable nexusos-coordinator.service 2>/dev/null || true
+    chroot "$ROOTFS" systemctl enable nexusos-firstboot.service || true
+  fi
 fi
 
 # Permit root login on serial for recovery (password set below only for smoke).
@@ -35,7 +45,7 @@ NEXUS_JOIN_TOKEN=smoke-join-token
 NEXUS_ADVERTISE=https://10.0.2.15:8080
 ENV
   chmod 0600 "$ROOTFS/etc/nexusos/coordinator.env"
-  # Override unit for --dev local QEMU only
+  # Override unit for --dev local QEMU only (no TLS file Conditions; --dev auto-TLS).
   cat > "$ROOTFS/etc/systemd/system/nexusos-coordinator.service" <<'UNIT'
 [Unit]
 Description=NexusOS Coordination Service (DEV SMOKE)

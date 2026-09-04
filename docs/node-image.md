@@ -18,8 +18,9 @@ Rationale: single-purpose, few moving parts, works on a normal Linux builder wit
 | `linux-image-amd64` + GRUB (BIOS) | Boot under QEMU/`qemu-system-x86_64` |
 | containerd + runc | OCI runtime (`--mock=false`) |
 | `nexusos-coordinator` + `nexusctl` | From this repo’s `coordination/` build |
-| systemd units | `containerd`, `nexusos-coordinator`, `nexusos-ready` (serial marker) |
+| systemd units | `containerd`, `nexusos-firstboot` (prod), `nexusos-coordinator`, `nexusos-ready` (serial marker) |
 | `/etc/nexusos/` | Tokens/TLS documentation + env example |
+| `nexusos-provision` | `/usr/local/sbin/nexusos-provision` — writes env + self-signed TLS |
 
 Package list: `image/packages.list`. Overlay: `image/overlay/`.
 
@@ -31,9 +32,17 @@ Outside `--dev` / `--insecure-dev`, the coordinator **requires**:
 2. Join token (`NEXUS_JOIN_TOKEN` / `--join-token`)
 3. TLS cert + key (`--tls-cert` / `--tls-key`)
 
-Production images install a unit that reads `/etc/nexusos/coordinator.env` and expects `/etc/nexusos/tls.crt` + `tls.key`. Copy from `coordinator.env.example`, install real secrets, then enable the service.
+### Production fail-closed first boot (2026-09-04)
 
-**`--dev` is only for local QEMU smoke** (`./image/build.sh --dev-smoke`). That build bakes smoke tokens and passes `--dev` so the coordinator can auto-generate self-signed TLS under `/var/lib/nexusos`. Do not deploy smoke images.
+Non-smoke images use a clear gate — **no invented secrets**:
+
+| Piece | Behavior |
+|-------|----------|
+| `nexusos-coordinator.service` | **Not** enabled at build time. `ConditionPathExists` on `coordinator.env` + `tls.crt` + `tls.key`. `EnvironmentFile=-/etc/nexusos/coordinator.env`. Passes `--api-token` / `--join-token` explicitly. `ExecStartPre` = `coordinator-preflight.sh` (rejects empty / `CHANGE_ME*` tokens; enforces key mode `0600`). |
+| `nexusos-firstboot.service` | Enabled on production images. If env/tokens/TLS incomplete → logs `NEXUSOS_FIRSTBOOT: … run nexusos-provision…` to journal/serial and exits 0 (coordinator stays inactive). If complete → fixes permissions and `systemctl enable --now nexusos-coordinator`. |
+| `nexusos-provision` | Creates `coordinator.env` (refuses overwrite without `--force`), generates self-signed TLS into `/etc/nexusos/tls.{crt,key}` with CN/SAN from `--advertise`, accepts tokens via flags/env/`--yes` for non-interactive bake. Optional `--start`. |
+
+**`--dev` is only for local QEMU smoke** (`./image/build.sh --dev-smoke`). That build bakes smoke tokens, overrides the unit with `--dev` (no TLS file Conditions), disables firstboot, and auto-starts the coordinator. Do not deploy smoke images.
 
 ## Host requirements (builder)
 
@@ -91,10 +100,23 @@ Then:
 
 ## Production first boot (non-smoke image)
 
+On first boot the serial console should show `NEXUSOS_FIRSTBOOT` instructions if the node is not provisioned. Coordinator remains inactive until tokens + TLS exist.
+
 ```bash
-# Inside the guest (serial/SSH), as root:
+# Inside the guest (serial/SSH), as root — recommended:
+nexusos-provision --api-token <TOKEN> --join-token <TOKEN> \
+  --advertise https://<this-host>:8080 --start
+
+# Non-interactive / image bake:
+NEXUS_API_TOKEN=... NEXUS_JOIN_TOKEN=... \
+  nexusos-provision --yes --advertise https://node.example:8080 --start
+```
+
+Manual alternative (same fail-closed checks):
+
+```bash
 cp /etc/nexusos/coordinator.env.example /etc/nexusos/coordinator.env
-# edit NEXUS_API_TOKEN, NEXUS_JOIN_TOKEN, NEXUS_ADVERTISE
+# edit NEXUS_API_TOKEN, NEXUS_JOIN_TOKEN, NEXUS_ADVERTISE (no CHANGE_ME*)
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/nexusos/tls.key \
   -out /etc/nexusos/tls.crt -days 365 -subj /CN=nexusos-node
 chmod 0600 /etc/nexusos/tls.key /etc/nexusos/coordinator.env
@@ -111,8 +133,9 @@ image/
 ├── packages.list
 ├── build.sh
 ├── hooks/customize-rootfs.sh
-└── overlay/          # hostname, grub defaults, systemd units, /etc/nexusos
+└── overlay/          # hostname, grub, units, /etc/nexusos, nexusos-provision
 scripts/qemu-node-smoke.sh
+scripts/test-nexusos-provision.sh   # temp-dir unit test for provision/preflight
 dist/node-image/      # build output (gitignored)
 ```
 
@@ -136,3 +159,10 @@ On a Debian builder with root + mmdebstrap:
 - `./scripts/qemu-node-smoke.sh` **PASS** under **TCG** (guest printed `NEXUSOS_READY`; hostfwd HTTPS `/health` + `/v1/node` with smoke token).
 - `/dev/kvm` was present but guest execution hung with KVM in this environment; smoke defaults to TCG (`SMOKE_KVM=1` to opt in).
 - Kernel `loop.max_part=0`: build uses host `grub-install` on the raw file + offset `losetup` for the rootfs partition.
+
+## First-boot hardening notes (2026-09-04)
+
+- Production path reviewed: coordinator Conditions + preflight; firstboot instruct-or-start; provision helper.
+- `./scripts/test-nexusos-provision.sh` exercises provision/preflight/firstboot against a temp `--etc-dir` (no full image rebuild).
+- Dev-smoke overlay still overrides the unit with `--dev` and auto-enables coordinator; smoke path unchanged.
+- Re-run `sudo ./image/build.sh --dev-smoke` + `./scripts/qemu-node-smoke.sh` on a privileged builder when validating a full image.

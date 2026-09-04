@@ -175,3 +175,14 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 - Full image builds need privileged host resources; CI continues to run `go test ./...` only and documents manual image builds.
 
 **Status**: Accepted
+
+---
+
+## 2026-09-04 – Node image first-boot tokens/TLS harden
+
+**Decision**: Production (non-smoke) node images **fail closed** on coordinator start until `/etc/nexusos/coordinator.env` exists with non-placeholder `NEXUS_API_TOKEN` / `NEXUS_JOIN_TOKEN`, and `/etc/nexusos/tls.crt` + `tls.key` (key mode `0600`) are present. Operators provision via **`nexusos-provision`** (writes env + optional self-signed TLS); **`nexusos-firstboot.service`** prints serial/journal instructions when incomplete and never invents secrets. The coordinator unit uses `ConditionPathExists` for env+TLS plus `ExecStartPre` preflight; it is **not** enabled at build time on production images. `--dev-smoke` keeps auto-start with `--dev`.
+
+**Rationale**: Build-time `systemctl enable nexusos-coordinator` left production guests restarting/failing without tokens or TLS. Separating provision from first-boot messaging keeps the security bar explicit and preserves the existing QEMU smoke path.
+
+**Status**: Accepted
+
