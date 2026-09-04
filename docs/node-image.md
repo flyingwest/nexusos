@@ -98,6 +98,29 @@ Then:
 ./bin/nexusctl --api https://127.0.0.1:18080 --token smoke-api-token --insecure node
 ```
 
+## Two-node QEMU e2e
+
+Proves Phase 2 **pair / pull+start / sync / ledger** across **two** QEMU guests running the `--dev-smoke` node image (not the host mock binaries path in `scripts/e2e-two-node-mock.sh`).
+
+```bash
+sudo ./image/build.sh --dev-smoke   # if qcow2 missing
+./scripts/qemu-two-node-e2e.sh
+# or: make qemu-e2e
+```
+
+The script:
+
+1. Creates two **qcow2 COW overlays** from the base smoke image (separate writable disks / node keys)
+2. Boots both under QEMU with distinct `hostfwd` ports (default host `:18080` and `:18081` → guest `:8080`)
+3. Waits for HTTPS `/health` on both
+4. **Rewrites `NEXUS_ADVERTISE`** over the serial console (`root` / `nexusos` on smoke images) to `https://10.0.2.2:<host-port>` so each guest can reach the other via the host gateway + hostfwd (user-mode networking isolates guests; the baked `https://10.0.2.15:8080` advertise would collide and break pairing)
+5. Pairs A↔B via `nexusctl`, pulls + starts `nginx:alpine` on A, syncs, asserts ledger placement on B
+6. Cleans up QEMU processes (and overlays unless `E2E_KEEP=1`)
+
+Tokens: reuses smoke `smoke-api-token` / `smoke-join-token` (override with `NEXUS_API_TOKEN` / `NEXUS_JOIN_TOKEN`). Acceleration matches single-node smoke: **TCG by default**, `SMOKE_KVM=1` optional.
+
+Useful knobs: `SMOKE_TIMEOUT` (default 900), `SMOKE_MEM` (default 1024), `E2E_SKIP_WORKLOAD=1` (pair+sync only), `E2E_DRY=1` (create overlays only).
+
 ## Production first boot (non-smoke image)
 
 On first boot the serial console should show `NEXUSOS_FIRSTBOOT` instructions if the node is not provisioned. Coordinator remains inactive until tokens + TLS exist.
@@ -135,6 +158,7 @@ image/
 ├── hooks/customize-rootfs.sh
 └── overlay/          # hostname, grub, units, /etc/nexusos, nexusos-provision
 scripts/qemu-node-smoke.sh
+scripts/qemu-two-node-e2e.sh      # two-guest pair/sync/ledger e2e
 scripts/test-nexusos-provision.sh   # temp-dir unit test for provision/preflight
 dist/node-image/      # build output (gitignored)
 ```
@@ -147,6 +171,7 @@ dist/node-image/      # build output (gitignored)
 | `image/` scripts + docs present and executable | This repo |
 | Full `mmdebstrap` → qcow2 build | Linux builder **with root** + mirror access |
 | QEMU smoke + `NEXUSOS_READY` | Builder/host with **KVM** (or slow TCG) + the built `*-devsmoke.qcow2` |
+| Two-guest QEMU e2e (`qemu-two-node-e2e.sh`) | Same + enough RAM for two guests; outbound net for image pulls; TCG may take many minutes |
 | containerd workloads inside the guest | Same as smoke; needs network for image pulls |
 
 If this environment cannot finish a full image build, the tooling and docs above are still the supported path on a proper builder.
@@ -166,3 +191,10 @@ On a Debian builder with root + mmdebstrap:
 - `./scripts/test-nexusos-provision.sh` exercises provision/preflight/firstboot against a temp `--etc-dir` (no full image rebuild).
 - Dev-smoke overlay still overrides the unit with `--dev` and auto-enables coordinator; smoke path unchanged.
 - Re-run `sudo ./image/build.sh --dev-smoke` + `./scripts/qemu-node-smoke.sh` on a privileged builder when validating a full image.
+
+## Two-node QEMU e2e notes (2026-09-04)
+
+- Scripted path: `scripts/qemu-two-node-e2e.sh` / `make qemu-e2e`.
+- Closes the post–Phase 2 gap of proving pair/sync/ledger on **real node images** under QEMU (mock host e2e remains the fast CI path).
+- Advertise rewrite over serial is intentional for user-mode networking; production multi-node deployments set `NEXUS_ADVERTISE` to a routable URL via `nexusos-provision` instead.
+- Verified here (TCG, `SMOKE_MEM=768`, `E2E_SKIP_WORKLOAD=1`): both guests healthy → serial advertise rewrite → `nexusctl pair` A→B via `10.0.2.2` hostfwd → sync shows both nodes Online / shared validators. Full pull+start path needs outbound registry access and more wall time; use default (no `E2E_SKIP_WORKLOAD`) on a roomier host.
