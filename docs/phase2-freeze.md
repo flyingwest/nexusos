@@ -22,7 +22,7 @@
 ## Explicitly deferred (out of Phase 2)
 
 - [ ] Embed CometBFT (or other BFT engine) in place of the permissioned hash-chain proposer
-- [ ] Minimal Linux / OS node image packaging
+- [ ] Minimal Linux / OS node image packaging — **started post-freeze** (see `docs/node-image.md`; not part of the freeze itself)
 - [ ] Phase 3 native orchestration (workloads, scheduler, reconciler)
 - [ ] CRIU cold migration
 - [ ] Operator UI

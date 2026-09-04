@@ -60,6 +60,21 @@ Deliverables:
 
 ---
 
+## Post–Phase 2 – Minimal Linux Node Image
+**Goal**: Ship a buildable Debian Bookworm x86_64 node disk image (QEMU-bootable) with containerd + runc + coordinator (systemd), without reopening frozen Phase 2 scope.
+
+Deliverables:
+- [x] `image/` tree: mmdebstrap-based build → raw + qcow2
+- [x] Install coordinator + systemd unit from `deploy/` / image overlay; enable containerd
+- [x] Document tokens + TLS; `--dev` only via `--dev-smoke` for local QEMU
+- [x] `scripts/qemu-node-smoke.sh` + `docs/node-image.md`
+- [x] Decision log entry (Debian Bookworm + mmdebstrap)
+- [ ] Full image build + KVM smoke on a privileged Linux builder (manual; not GHA)
+
+**Exit criteria**: A documented, scripted path produces a bootable node image; coordinator security bar holds outside `--dev`. Full build/smoke may require a host with root and KVM.
+
+---
+
 ## Phase 3 – Native Orchestration
 **Goal**: Declarative Workloads with scheduling and reconciliation.
 

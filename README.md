@@ -8,7 +8,7 @@ The shared ledger tracks **container image integrity** and **which containers ru
 
 Native orchestration exists, but it is secondary to the distributed OS foundation.
 
-> **Status**: Phase 2 **FROZEN** — permissioned peer ledger sync + hash-chain consensus, hardened with required join-token + API token + TLS. Phase 1 single-node path remains the local runtime (mock by default).
+> **Status**: Phase 2 **FROZEN** — permissioned peer ledger sync + hash-chain consensus, hardened with required join-token + API token + TLS. Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
 
 ---
 
@@ -141,7 +141,8 @@ nexusos/
 │   ├── roadmap.md
 │   ├── ledger-schema.md
 │   ├── decisions.md
-│   └── phase2-freeze.md    # Phase 2 exit / freeze checklist
+│   ├── phase2-freeze.md    # Phase 2 exit / freeze checklist
+│   └── node-image.md       # Debian Bookworm node image build/boot
 ├── coordination/           # Go module – coordination service
 │   ├── cmd/coordinator/
 │   ├── cmd/nexusctl/
@@ -155,8 +156,9 @@ nexusos/
 │       ├── p2p/            # signed snapshot sync
 │       ├── consensus/      # permissioned hash-chain (placement + images)
 │       └── state/
-├── scripts/                # install.sh, e2e-two-node-mock.sh
-└── deploy/                 # systemd unit
+├── scripts/                # install.sh, e2e, qemu-node-smoke.sh
+├── deploy/                 # systemd unit
+└── image/                  # Debian Bookworm node image (mmdebstrap → qcow2)
 ```
 
 ## Roadmap (short)
@@ -166,9 +168,21 @@ nexusos/
 | 0     | Foundation (done) |
 | 1     | Single-node host + image integrity (done) |
 | 2     | Multi-node OS network + shared ledger — **FROZEN** (HTTP sync + hash-chain; tokens+TLS) |
+| 2.1   | Minimal Debian Bookworm node image (mmdebstrap) — tooling in-tree; privileged build manual |
 | 3     | Simple native orchestration (secondary) — deferred |
 | 4     | Coordinated cold migration (CRIU) — deferred |
 | 5     | Hardening + permissionless path |
+
+## Minimal node image (post–Phase 2)
+
+Build a QEMU-bootable **Debian Bookworm** x86_64 disk image with containerd + runc + the coordinator:
+
+```bash
+sudo ./image/build.sh --dev-smoke
+./scripts/qemu-node-smoke.sh dist/node-image/nexusos-node-bookworm-amd64-devsmoke.qcow2
+```
+
+Production images omit `--dev-smoke` and still require API token + join-token + TLS at runtime. Details: [docs/node-image.md](docs/node-image.md). Image builds need a Linux host with root (and KVM for comfortable smoke); A sample Go test workflow is in `docs/examples/go-test.yml` (optional to enable).
 
 ## Install on a host
 

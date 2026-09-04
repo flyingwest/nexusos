@@ -1,0 +1,28 @@
+# Debian Bookworm packages for the NexusOS minimal node image.
+# One package per line; blank lines and # comments ignored.
+
+# Base + boot
+linux-image-amd64
+systemd
+systemd-sysv
+dbus
+initramfs-tools
+grub-pc
+e2fsprogs
+
+# Networking / TLS / ops
+ca-certificates
+openssl
+curl
+iproute2
+iputils-ping
+procps
+sudo
+openssh-server
+
+# Container runtime (Phase 1/2 path)
+containerd
+runc
+
+# Serial console / QEMU niceties
+qemu-guest-agent

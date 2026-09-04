@@ -1,4 +1,4 @@
-.PHONY: build run test tidy clean install coordinator nexusctl e2e
+.PHONY: build run test tidy clean install coordinator nexusctl e2e image image-devsmoke qemu-smoke
 
 COORD_DIR := coordination
 
@@ -28,3 +28,13 @@ clean:
 
 install: build
 	./scripts/install.sh
+
+# Node image (requires root + mmdebstrap; see docs/node-image.md)
+image:
+	sudo ./image/build.sh
+
+image-devsmoke:
+	sudo ./image/build.sh --dev-smoke
+
+qemu-smoke:
+	./scripts/qemu-node-smoke.sh

@@ -160,3 +160,18 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 **Rationale**: Phase 2 already met the multi-node ledger/consensus exit criteria for the homegrown path. Freezing after tokens+TLS keeps a shippable, reviewable baseline before larger deferred work.
 
 **Status**: Accepted
+
+
+---
+
+## 2026-09-04 – Debian Bookworm minimal node image (mmdebstrap)
+
+**Decision**: After the Phase 2 freeze, add a **buildable path** for a QEMU-bootable **x86_64 Debian Bookworm** minimal node image that includes **containerd + runc** and the NexusOS coordinator under **systemd**. Use **mmdebstrap** (not mkosi or debos) as the sole image-construction tool for this milestone.
+
+**Rationale**:
+- Phase 2 froze userspace coordination (tokens + TLS + ledger/consensus). Packaging a real minimal Linux node is the next concrete increment toward “distributed OS,” without reopening CometBFT, Phase 3 orchestration, CRIU, or UI.
+- mmdebstrap is the simplest viable Debian-native rootfs builder: one binary, clear package lists, works with root + loop devices on a normal Linux host. mkosi and debos remain fine alternatives later if we need unified UKI/secure-boot or richer recipes; we stick to one tool now.
+- Security bar is unchanged: production images require API token + join-token + TLS; `--dev` is confined to an optional `--dev-smoke` image for local QEMU.
+- Full image builds need privileged host resources; CI continues to run `go test ./...` only and documents manual image builds.
+
+**Status**: Accepted

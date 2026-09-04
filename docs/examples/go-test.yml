@@ -1,0 +1,29 @@
+# Copy to .github/workflows/go-test.yml to enable CI.
+name: go-test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: coordination
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache-dependency-path: coordination/go.sum
+      - name: go test
+        run: go test ./...
+      - name: go build
+        run: |
+          go build -o ../bin/coordinator ./cmd/coordinator
+          go build -o ../bin/nexusctl ./cmd/nexusctl
+
+# Node disk image builds (mmdebstrap + loop mounts) are manual on a privileged
+# Linux builder — see docs/node-image.md. Not run in GHA.

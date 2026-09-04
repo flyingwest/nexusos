@@ -1,0 +1,12 @@
+[Unit]
+Description=NexusOS node ready marker (serial)
+After=nexusos-coordinator.service
+Wants=nexusos-coordinator.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/nexusos/ready-marker.sh
+
+[Install]
+WantedBy=multi-user.target
