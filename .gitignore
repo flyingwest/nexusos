@@ -4,8 +4,8 @@ bin/
 *.dll
 *.so
 *.dylib
-coordinator
-nexusctl
+/coordinator
+/nexusctl
 
 # Data & state
 data/

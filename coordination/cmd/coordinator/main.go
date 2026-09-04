@@ -1,0 +1,284 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/nexusos/coordination/internal/api/httpapi"
+	"github.com/nexusos/coordination/internal/config"
+	"github.com/nexusos/coordination/internal/consensus"
+	"github.com/nexusos/coordination/internal/identity"
+	"github.com/nexusos/coordination/internal/ledger"
+	"github.com/nexusos/coordination/internal/membership"
+	"github.com/nexusos/coordination/internal/p2p"
+	"github.com/nexusos/coordination/internal/runtime"
+	"github.com/nexusos/coordination/internal/state"
+)
+
+func main() {
+	dataDir := flag.String("data-dir", "", "override data directory")
+	listen := flag.String("listen", "", "override listen address")
+	mock := flag.Bool("mock", true, "use mock runtime (no containerd required)")
+	socket := flag.String("containerd-socket", "", "containerd socket path")
+	apiToken := flag.String("api-token", "", "bearer token for operator API auth (or NEXUS_API_TOKEN)")
+	requireDigest := flag.Bool("require-digest", false, "only allow starting containers by image digest")
+	mode := flag.String("mode", "permissioned", "permissioned | permissionless")
+	advertise := flag.String("advertise", "", "URL other nodes use to reach this coordinator (default: localhost + listen)")
+	peers := flag.String("peers", "", "comma-separated bootstrap peer URLs")
+	joinToken := flag.String("join-token", "", "shared token required to pair")
+	syncInterval := flag.Duration("sync-interval", 0, "peer ledger sync interval (default: 10s)")
+	heartbeatTimeout := flag.Duration("heartbeat-timeout", 0, "mark peers offline after this silence (default: 30s)")
+	useConsensus := flag.Bool("consensus", true, "commit image integrity and placement via permissioned hash-chain consensus")
+	consensusTimeout := flag.Duration("consensus-timeout", 0, "how long to wait for a quorum (default: 5s)")
+	dev := flag.Bool("dev", false, "insecure local experiments: allow empty tokens and auto self-signed TLS")
+	insecureDev := flag.Bool("insecure-dev", false, "alias for --dev")
+	tlsCert := flag.String("tls-cert", "", "TLS certificate file (required unless --dev)")
+	tlsKey := flag.String("tls-key", "", "TLS private key file (required unless --dev)")
+	tlsInsecurePeers := flag.Bool("tls-insecure-peers", false, "skip TLS verification when dialing peer HTTPS URLs")
+	flag.Parse()
+
+	cfg := config.Default()
+	if *dataDir != "" {
+		cfg.DataDir = *dataDir
+	}
+	if *listen != "" {
+		cfg.ListenAddr = *listen
+	}
+	if *socket != "" {
+		cfg.ContainerdSocket = *socket
+	}
+	cfg.UseMockRuntime = *mock
+	cfg.APIToken = *apiToken
+	if cfg.APIToken == "" {
+		cfg.APIToken = os.Getenv("NEXUS_API_TOKEN")
+	}
+	cfg.RequireImageDigest = *requireDigest
+	cfg.Mode = *mode
+	cfg.AdvertiseURL = *advertise
+	cfg.JoinToken = *joinToken
+	if cfg.JoinToken == "" {
+		cfg.JoinToken = os.Getenv("NEXUS_JOIN_TOKEN")
+	}
+	if *syncInterval > 0 {
+		cfg.SyncInterval = *syncInterval
+	}
+	if *heartbeatTimeout > 0 {
+		cfg.HeartbeatTimeout = *heartbeatTimeout
+	}
+	cfg.Consensus = *useConsensus
+	if *consensusTimeout > 0 {
+		cfg.ConsensusTimeout = *consensusTimeout
+	}
+	cfg.Dev = *dev || *insecureDev
+	cfg.TLSCertFile = *tlsCert
+	cfg.TLSKeyFile = *tlsKey
+	cfg.TLSInsecureSkipVerify = *tlsInsecurePeers
+	if *peers != "" {
+		for _, p := range splitCSV(*peers) {
+			cfg.Peers = append(cfg.Peers, p)
+		}
+	}
+
+	if cfg.DataDir == "/var/lib/nexusos" {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			cfg.DataDir = filepath.Join(home, ".nexusos")
+		} else {
+			cfg.DataDir = "./data"
+		}
+	}
+
+	// In --dev, auto-generate self-signed TLS under data-dir when cert/key omitted.
+	if cfg.Dev {
+		cert, key, err := config.EnsureDevTLS(cfg.DataDir, cfg.TLSCertFile, cfg.TLSKeyFile)
+		if err != nil {
+			log.Fatalf("dev TLS: %v", err)
+		}
+		cfg.TLSCertFile = cert
+		cfg.TLSKeyFile = key
+		cfg.TLSInsecureSkipVerify = true
+	}
+
+	if cfg.AdvertiseURL == "" {
+		scheme := "http"
+		if cfg.TLSEnabled() {
+			scheme = "https"
+		}
+		cfg.AdvertiseURL = config.AdvertiseFromListen(cfg.ListenAddr, scheme)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("config: %v", err)
+	}
+
+	// Cryptographic node identity (persistent)
+	kp, err := identity.LoadOrCreate(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("identity: %v", err)
+	}
+	cfg.NodeID = kp.NodeID
+
+	fmt.Println("NexusOS Coordination Service")
+	fmt.Println("============================")
+	fmt.Printf("Node ID     : %s\n", kp.NodeID)
+	fmt.Printf("Data dir    : %s\n", cfg.DataDir)
+	fmt.Printf("Listen      : %s\n", cfg.ListenAddr)
+	fmt.Printf("Runtime     : %s\n", map[bool]string{true: "mock", false: "containerd"}[cfg.UseMockRuntime])
+	fmt.Printf("Auth        : %v\n", cfg.APIToken != "")
+	fmt.Printf("TLS         : %v\n", cfg.TLSEnabled())
+	fmt.Printf("Dev mode    : %v\n", cfg.Dev)
+	fmt.Printf("Digest req  : %v\n", cfg.RequireImageDigest)
+	fmt.Printf("Mode        : %s\n", cfg.Mode)
+	fmt.Printf("Advertise   : %s\n", cfg.AdvertiseURL)
+	fmt.Printf("Join token  : %v\n", cfg.JoinToken != "")
+	fmt.Printf("Peers       : %v\n", cfg.Peers)
+	fmt.Printf("HB timeout  : %s\n", cfg.HeartbeatTimeout)
+	fmt.Printf("Consensus   : %v\n", cfg.Consensus)
+	fmt.Println()
+
+	store, err := state.NewStore(cfg.DataDir, kp.NodeID)
+	if err != nil {
+		log.Fatalf("state store: %v", err)
+	}
+
+	ledgerStore, err := ledger.NewStore(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("ledger store: %v", err)
+	}
+
+	members, err := membership.NewStore(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("membership: %v", err)
+	}
+
+	peerStore, err := p2p.NewStore(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("peers: %v", err)
+	}
+	for _, u := range cfg.Peers {
+		if err := peerStore.Upsert(p2p.Peer{URL: u}); err != nil {
+			log.Fatalf("bootstrap peer %s: %v", u, err)
+		}
+	}
+
+	// Register self on the ledger and membership (bootstrap)
+	pub := kp.PublicJSON()
+	_ = ledgerStore.UpsertNode(ledger.NodeRecord{
+		NodeID:    pub.NodeID,
+		PublicKey: pub.PublicKey,
+		Status:    ledger.StatusOnline,
+		Mode:      cfg.Mode,
+	})
+	_ = members.Upsert(membership.Member{
+		NodeID:    pub.NodeID,
+		PublicKey: pub.PublicKey,
+		Label:     "self",
+	})
+
+	peerClient := p2p.NewClient()
+	if cfg.TLSEnabled() {
+		peerClient = p2p.NewClientTLS(cfg.TLSInsecureSkipVerify)
+	}
+
+	engine := &p2p.Engine{
+		KP:               kp,
+		Advertise:        cfg.AdvertiseURL,
+		JoinToken:        cfg.JoinToken,
+		Mode:             cfg.Mode,
+		Ledger:           ledgerStore,
+		Members:          members,
+		Peers:            peerStore,
+		Client:           peerClient,
+		Interval:         cfg.SyncInterval,
+		HeartbeatTimeout: cfg.HeartbeatTimeout,
+	}
+
+	var ceng *consensus.Engine
+	if cfg.Consensus {
+		chain, err := consensus.NewChain(cfg.DataDir)
+		if err != nil {
+			log.Fatalf("consensus chain: %v", err)
+		}
+		ceng = &consensus.Engine{
+			KP:        kp,
+			Advertise: cfg.AdvertiseURL,
+			Ledger:    ledgerStore,
+			Members:   members,
+			Peers:     peerStore,
+			Client:    peerClient,
+			Chain:     chain,
+			Timeout:   cfg.ConsensusTimeout,
+		}
+	}
+
+	var rt runtime.Runtime
+	if cfg.UseMockRuntime {
+		rt = runtime.NewMockRuntime()
+		log.Println("Using mock runtime (safe for development)")
+	} else {
+		crt, err := runtime.NewContainerdRuntime(cfg.ContainerdSocket, cfg.Namespace)
+		if err != nil {
+			log.Fatalf("containerd runtime: %v\n(Hint: is containerd running? Try --mock)", err)
+		}
+		rt = crt
+		log.Printf("Connected to containerd at %s", cfg.ContainerdSocket)
+	}
+	defer rt.Close()
+
+	api := httpapi.New(httpapi.Options{
+		Addr:               cfg.ListenAddr,
+		APIToken:           cfg.APIToken,
+		TLSCertFile:        cfg.TLSCertFile,
+		TLSKeyFile:         cfg.TLSKeyFile,
+		RequireImageDigest: cfg.RequireImageDigest,
+		Mode:               cfg.Mode,
+		KeyPair:            kp,
+		Runtime:            rt,
+		Store:              store,
+		Ledger:             ledgerStore,
+		Members:            members,
+		Engine:             engine,
+		Consensus:          ceng,
+	})
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		if err := api.Start(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("API server: %v", err)
+		}
+	}()
+	go engine.Run(ctx)
+
+	log.Println("Coordinator is running. Press Ctrl+C to stop.")
+	<-ctx.Done()
+	log.Println("Shutting down...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := api.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown error: %v", err)
+	}
+	log.Println("Bye.")
+}
+
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
