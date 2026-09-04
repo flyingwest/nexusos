@@ -31,6 +31,6 @@ Then start with `--mock=false` plus tokens and TLS files (not `--dev` for produc
 ## Deferred past Phase 2 freeze
 
 1. Replace the homegrown hash-chain proposer with embedded CometBFT when we need BFT finality
-2. Package a minimal Linux node image so this is more than a userspace coordinator
+2. Package a minimal Linux node image — tooling in `image/` + `docs/node-image.md` (manual privileged build)
 3. CRIU cold migration (after the network fabric is boring)
 4. Phase 3 orchestration and UI

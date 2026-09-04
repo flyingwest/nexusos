@@ -6,7 +6,7 @@ Thank you for your interest.
 
 The project is in **Phase 2 (frozen)**: multi-node permissioned ledger sync + hash-chain consensus, hardened with required **join-token + API token + TLS**.
 
-Do **not** start Phase 3 orchestration, CometBFT replacement, OS image packaging, CRIU, or UI work against this freeze without an explicit new milestone decision in `docs/decisions.md`.
+Do **not** start Phase 3 orchestration, CometBFT replacement, CRIU, or UI work against this freeze without an explicit new milestone decision in `docs/decisions.md`. Minimal Debian Bookworm node image packaging is an accepted **post-freeze** milestone (`image/`, `docs/node-image.md`, decision 2026-09-04).
 
 Highest-priority foundation (still true):
 
@@ -40,6 +40,14 @@ Mock two-node e2e (HTTPS + tokens, `--dev` for self-signed):
 ```bash
 ./scripts/e2e-two-node-mock.sh
 ```
+
+Node image (privileged Linux builder; optional):
+
+```bash
+sudo ./image/build.sh --dev-smoke
+./scripts/qemu-node-smoke.sh
+```
+
 
 ## Pull requests
 

@@ -1,0 +1,20 @@
+[Unit]
+Description=NexusOS Coordination Service
+Documentation=https://github.com/flyingwest/nexusos-phase2
+After=network-online.target containerd.service
+Wants=network-online.target
+Requires=containerd.service
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=-/etc/nexusos/coordinator.env
+# Production: set NEXUS_API_TOKEN, NEXUS_JOIN_TOKEN, and place TLS material at the paths below.
+# Do not use --dev outside local QEMU smoke builds.
+ExecStart=/usr/local/bin/nexusos-coordinator --mock=false --listen :8080 --data-dir /var/lib/nexusos --join-token ${NEXUS_JOIN_TOKEN} --tls-cert /etc/nexusos/tls.crt --tls-key /etc/nexusos/tls.key --advertise ${NEXUS_ADVERTISE}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
