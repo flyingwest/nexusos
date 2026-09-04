@@ -10,7 +10,7 @@
 #   - Network access to deb.debian.org (or set MIRROR)
 #
 # Usage:
-#   sudo ./image/build.sh              # production-oriented image (tokens/TLS required at runtime)
+#   sudo ./image/build.sh              # production image (fail-closed; run nexusos-provision before coordinator)
 #   sudo ./image/build.sh --dev-smoke  # QEMU smoke image with --dev + fixed tokens
 #   sudo ./image/build.sh --rootfs-only
 #

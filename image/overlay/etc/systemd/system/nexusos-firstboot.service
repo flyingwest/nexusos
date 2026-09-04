@@ -1,0 +1,15 @@
+[Unit]
+Description=NexusOS first-boot provision gate (tokens/TLS)
+Documentation=file:///etc/nexusos/README
+After=network-online.target local-fs.target
+Wants=network-online.target
+Before=nexusos-coordinator.service
+# Runs once per boot; does not invent secrets. Prints serial instructions if unconfigured.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/nexusos/firstboot.sh
+
+[Install]
+WantedBy=multi-user.target

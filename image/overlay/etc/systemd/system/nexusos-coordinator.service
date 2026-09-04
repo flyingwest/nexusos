@@ -1,19 +1,27 @@
 [Unit]
 Description=NexusOS Coordination Service
 Documentation=https://github.com/flyingwest/nexusos-phase2
-After=network-online.target containerd.service
+Documentation=file:///etc/nexusos/README
+After=network-online.target containerd.service nexusos-firstboot.service
 Wants=network-online.target
 Requires=containerd.service
+# Fail closed: do not start until provisioned env + TLS exist.
+# Token placeholder checks are in ExecStartPre (coordinator-preflight.sh).
+# Operators: nexusos-provision --api-token … --join-token … --start
+ConditionPathExists=/etc/nexusos/coordinator.env
+ConditionPathExists=/etc/nexusos/tls.crt
+ConditionPathExists=/etc/nexusos/tls.key
 
 [Service]
 Type=simple
 User=root
 EnvironmentFile=-/etc/nexusos/coordinator.env
-# Production: set NEXUS_API_TOKEN, NEXUS_JOIN_TOKEN, and place TLS material at the paths below.
-# Do not use --dev outside local QEMU smoke builds.
-ExecStart=/usr/local/bin/nexusos-coordinator --mock=false --listen :8080 --data-dir /var/lib/nexusos --join-token ${NEXUS_JOIN_TOKEN} --tls-cert /etc/nexusos/tls.crt --tls-key /etc/nexusos/tls.key --advertise ${NEXUS_ADVERTISE}
+ExecStartPre=/usr/local/lib/nexusos/coordinator-preflight.sh
+ExecStart=/usr/local/bin/nexusos-coordinator --mock=false --listen :8080 --data-dir /var/lib/nexusos --api-token ${NEXUS_API_TOKEN} --join-token ${NEXUS_JOIN_TOKEN} --tls-cert /etc/nexusos/tls.crt --tls-key /etc/nexusos/tls.key --advertise ${NEXUS_ADVERTISE}
 Restart=on-failure
 RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=5
 LimitNOFILE=65536
 
 [Install]
