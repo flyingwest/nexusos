@@ -55,7 +55,7 @@ Non-smoke images use a clear gate — **no invented secrets**:
 - For smoke: QEMU TCG works everywhere; set `SMOKE_KVM=1` when `/dev/kvm` is known-good (some hosts expose `/dev/kvm` but guest execution hangs)
 - Builder kernels with `loop.max_part=0` need host `grub-install` against the raw file (the build script handles this)
 
-Image build is **manual** — not run in GitHub Actions by default (too heavy / needs privileged loop devices). CI sample for `go test ./...` is in `docs/examples/go-test.yml` (copy to `.github/workflows/` if your token has the `workflow` scope). Image builds stay manual.
+Go tests, builds, and `scripts/test-nexusos-provision.sh` run in GitHub Actions (`.github/workflows/ci.yml`). **Image builds stay manual** (too heavy / need privileged loop devices) — see below.
 
 ## Build
 

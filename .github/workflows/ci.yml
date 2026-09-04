@@ -1,4 +1,3 @@
-# Mirror of .github/workflows/ci.yml (kept for docs). Prefer the workflow under .github/.
 name: ci
 
 on:
