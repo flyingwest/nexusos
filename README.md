@@ -156,7 +156,7 @@ nexusos/
 │       ├── p2p/            # signed snapshot sync
 │       ├── consensus/      # permissioned hash-chain (placement + images)
 │       └── state/
-├── scripts/                # install.sh, e2e, qemu-node-smoke.sh
+├── scripts/                # install.sh, e2e, qemu-node-smoke/two-node-e2e.sh
 ├── deploy/                 # systemd unit
 └── image/                  # Debian Bookworm node image (mmdebstrap → qcow2)
 ```
@@ -180,6 +180,8 @@ Build a QEMU-bootable **Debian Bookworm** x86_64 disk image with containerd + ru
 ```bash
 sudo ./image/build.sh --dev-smoke
 ./scripts/qemu-node-smoke.sh dist/node-image/nexusos-node-bookworm-amd64-devsmoke.qcow2
+# Two-guest pair/sync/ledger (TCG by default; slow):
+./scripts/qemu-two-node-e2e.sh
 ```
 
 Production images omit `--dev-smoke` and still require API token + join-token + TLS at runtime. Details: [docs/node-image.md](docs/node-image.md). Image builds need a Linux host with root (and KVM for comfortable smoke); A sample Go test workflow is in `docs/examples/go-test.yml` (optional to enable).

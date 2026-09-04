@@ -186,3 +186,13 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 
 **Status**: Accepted
 
+---
+
+## 2026-09-04 – Two-node QEMU e2e for node images
+
+**Decision**: Add `scripts/qemu-two-node-e2e.sh` to prove Phase 2 pair/sync/ledger across **two QEMU guests** running the Debian `--dev-smoke` node image. Keep `scripts/e2e-two-node-mock.sh` as the fast host/CI path. For user-mode networking, rewrite each guest’s `NEXUS_ADVERTISE` to `https://10.0.2.2:<hostfwd-port>` after boot (serial login on smoke images) so peers can dial through the host; do not invent production secrets—reuse smoke tokens.
+
+**Rationale**: Single-guest `qemu-node-smoke.sh` only checks `/health`. Mock e2e never boots the node image. A two-guest path is the missing exit check that the packaged coordinator + containerd stack can form a permissioned pair and converge ledger state. TCG remains the default accelerator (same as single-node smoke).
+
+**Status**: Accepted
+

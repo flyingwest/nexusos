@@ -69,9 +69,10 @@ Deliverables:
 - [x] Document tokens + TLS; `--dev` only via `--dev-smoke` for local QEMU
 - [x] `scripts/qemu-node-smoke.sh` + `docs/node-image.md`
 - [x] Decision log entry (Debian Bookworm + mmdebstrap)
+- [x] `scripts/qemu-two-node-e2e.sh` — two-guest pair/sync/ledger on node images
 - [ ] Full image build + KVM smoke on a privileged Linux builder (manual; not GHA)
 
-**Exit criteria**: A documented, scripted path produces a bootable node image; coordinator security bar holds outside `--dev`. Full build/smoke may require a host with root and KVM.
+**Exit criteria**: A documented, scripted path produces a bootable node image; coordinator security bar holds outside `--dev`. Two-guest QEMU e2e scripted for pair/sync/ledger on smoke images. Full build/smoke may require a host with root and KVM.
 
 ---
 

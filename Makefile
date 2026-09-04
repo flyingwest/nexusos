@@ -1,4 +1,4 @@
-.PHONY: build run test tidy clean install coordinator nexusctl e2e image image-devsmoke qemu-smoke test-provision
+.PHONY: build run test tidy clean install coordinator nexusctl e2e image image-devsmoke qemu-smoke qemu-e2e test-provision
 
 COORD_DIR := coordination
 
@@ -41,3 +41,6 @@ image-devsmoke:
 
 qemu-smoke:
 	./scripts/qemu-node-smoke.sh
+
+qemu-e2e:
+	./scripts/qemu-two-node-e2e.sh
