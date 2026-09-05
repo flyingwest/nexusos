@@ -184,6 +184,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("membership: %v", err)
 	}
+	ledgerStore.BindMembership(func(recs map[string]ledger.MemberRecord) error {
+		list := make([]membership.Member, 0, len(recs))
+		for _, m := range recs {
+			list = append(list, membership.Member{
+				NodeID:    m.NodeID,
+				PublicKey: m.PublicKey,
+				Addresses: m.Addresses,
+				Label:     m.Label,
+			})
+		}
+		return members.ReplaceAll(list)
+	})
 
 	peerStore, err := p2p.NewStore(cfg.DataDir)
 	if err != nil {
@@ -281,6 +293,9 @@ func main() {
 	var txSubmitter httpapi.TxSubmitter
 	if cmtNode != nil {
 		txSubmitter = cmtNode
+		engine.MembershipTx = cmtNode
+	} else if ceng != nil {
+		engine.MembershipTx = ceng
 	}
 	api := httpapi.New(httpapi.Options{
 		Addr:               cfg.ListenAddr,

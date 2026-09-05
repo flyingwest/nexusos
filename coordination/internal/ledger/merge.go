@@ -24,6 +24,11 @@ func MergeState(dst *State, src State) {
 	if dst.Tombstones == nil {
 		dst.Tombstones = make(map[string]time.Time)
 	}
+	if dst.Members == nil {
+		dst.Members = make(map[string]MemberRecord)
+	}
+	// Members are consensus-ordered (JoinMember/LeaveMember). Never merge from
+	// HTTP snapshot sync or peers can diverge on NextValidatorsHash.
 
 	for k, ts := range src.Tombstones {
 		if existing, ok := dst.Tombstones[k]; !ok || ts.After(existing) {

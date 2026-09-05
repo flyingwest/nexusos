@@ -15,6 +15,8 @@ const (
 	MsgRemoveContainer   MessageType = "RemoveContainer"
 	MsgProposeMigration  MessageType = "ProposeMigration"
 	MsgCompleteMigration MessageType = "CompleteMigration"
+	MsgJoinMember        MessageType = "JoinMember"
+	MsgLeaveMember       MessageType = "LeaveMember"
 )
 
 // Envelope is a signed ledger message (Phase 2 skeleton).
@@ -79,12 +81,26 @@ type MigrationRecord struct {
 	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 }
 
+// MemberRecord is consensus-ordered permissioned membership (join/pair/leave).
+// Validator updates for CometBFT are derived from this map, not from the
+// local HTTP membership cache alone.
+type MemberRecord struct {
+	NodeID    string    `json:"node_id"`
+	PublicKey string    `json:"public_key"`
+	Addresses []string  `json:"addresses,omitempty"`
+	Label     string    `json:"label,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // State is the in-memory network ledger view.
 type State struct {
 	Nodes      map[string]NodeRecord      `json:"nodes"`
 	Images     map[string]ImageRecord     `json:"images"`
 	Containers map[string]ContainerRecord `json:"containers"`
 	Migrations map[string]MigrationRecord `json:"migrations"`
+	// Members is the consensus-ordered membership set (JoinMember/LeaveMember).
+	// HTTP snapshot sync must not merge this field — see MergeState.
+	Members map[string]MemberRecord `json:"members,omitempty"`
 	// Tombstones records deletes so peer merge does not resurrect removed objects.
 	// Key format: "container:<id>", "migration:<id>".
 	Tombstones map[string]time.Time `json:"tombstones,omitempty"`
@@ -97,6 +113,7 @@ func NewState() *State {
 		Images:     make(map[string]ImageRecord),
 		Containers: make(map[string]ContainerRecord),
 		Migrations: make(map[string]MigrationRecord),
+		Members:    make(map[string]MemberRecord),
 		Tombstones: make(map[string]time.Time),
 	}
 }

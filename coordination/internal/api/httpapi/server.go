@@ -399,6 +399,16 @@ func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "node_id is required")
 		return
 	}
+	if m.PublicKey == "" {
+		writeError(w, http.StatusBadRequest, "public_key is required")
+		return
+	}
+	if s.submitMembership(w, r, ledger.MsgJoinMember, ledger.MemberPayload{
+		NodeID: m.NodeID, PublicKey: m.PublicKey, Addresses: m.Addresses, Label: m.Label,
+	}) {
+		writeJSON(w, http.StatusCreated, m)
+		return
+	}
 	if err := s.members.Upsert(m); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -408,11 +418,45 @@ func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	// LeaveMember is modeled; DiffValidatorUpdates still refuses empty sets /
+	// non-validator destructive replaces. Prefer expand-only ops in production.
+	if s.submitMembership(w, r, ledger.MsgLeaveMember, ledger.MemberPayload{NodeID: id}) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "removed", "node_id": id})
+		return
+	}
 	if err := s.members.Remove(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed", "node_id": id})
+}
+
+// submitMembership tries TxSubmitter then hash-chain consensus. Returns true if
+// handled (caller should not local-mutate). On submit error writes response.
+func (s *Server) submitMembership(w http.ResponseWriter, r *http.Request, typ ledger.MessageType, payload ledger.MemberPayload) bool {
+	if s.kp == nil {
+		return false
+	}
+	tx, err := ledger.NewTx(s.kp, typ, payload, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return true
+	}
+	if s.txSubmitter != nil {
+		if err := s.txSubmitter.Submit(r.Context(), tx); err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return true
+		}
+		return true
+	}
+	if s.consensus != nil {
+		if err := s.consensus.Submit(r.Context(), tx); err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return true
+		}
+		return true
+	}
+	return false
 }
 
 func (s *Server) requireEngine(w http.ResponseWriter) bool {
@@ -528,7 +572,7 @@ func (s *Server) handleNetPair(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	resp, err := s.engine.HandlePair(req)
+	resp, err := s.engine.HandlePair(r.Context(), req)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "invalid join token" {

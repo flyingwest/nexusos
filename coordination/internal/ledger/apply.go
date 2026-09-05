@@ -27,6 +27,9 @@ func ApplyTx(st *State, tx Tx) error {
 	if st.Tombstones == nil {
 		st.Tombstones = make(map[string]time.Time)
 	}
+	if st.Members == nil {
+		st.Members = make(map[string]MemberRecord)
+	}
 
 	switch tx.Type {
 	case MsgRegisterImage, MsgVerifyImage:
@@ -87,7 +90,68 @@ func ApplyTx(st *State, tx Tx) error {
 		st.Tombstones[ContainerTomb(p.ContainerID)] = tx.Timestamp
 		return nil
 
+	case MsgJoinMember:
+		var p MemberPayload
+		if err := json.Unmarshal(tx.Payload, &p); err != nil {
+			return fmt.Errorf("member payload: %w", err)
+		}
+		if p.NodeID == "" {
+			return fmt.Errorf("member node_id is required")
+		}
+		if p.PublicKey == "" {
+			return fmt.Errorf("member public_key is required")
+		}
+		if err := checkTxIdentity(p.NodeID, p.PublicKey); err != nil {
+			return fmt.Errorf("member identity: %w", err)
+		}
+		// Ensure the admitting signer is recorded so validator diffs include both.
+		if _, ok := st.Members[tx.NodeID]; !ok {
+			st.Members[tx.NodeID] = MemberRecord{
+				NodeID:    tx.NodeID,
+				PublicKey: tx.PublicKey,
+				Label:     "member",
+				UpdatedAt: tx.Timestamp,
+			}
+		}
+		st.Members[p.NodeID] = MemberRecord{
+			NodeID:    p.NodeID,
+			PublicKey: p.PublicKey,
+			Addresses: p.Addresses,
+			Label:     p.Label,
+			UpdatedAt: tx.Timestamp,
+		}
+		return nil
+
+	case MsgLeaveMember:
+		var p MemberPayload
+		if err := json.Unmarshal(tx.Payload, &p); err != nil {
+			return fmt.Errorf("member payload: %w", err)
+		}
+		if p.NodeID == "" {
+			return fmt.Errorf("member node_id is required")
+		}
+		delete(st.Members, p.NodeID)
+		return nil
+
 	default:
 		return fmt.Errorf("unsupported tx type %s", tx.Type)
 	}
+}
+
+// MembershipPower returns pubkey-hex → equal voting power for members with
+// usable 32-byte Ed25519 public keys (same mapping CometBFT validators use).
+func MembershipPower(members map[string]MemberRecord) map[string]int64 {
+	const power int64 = 10 // keep in sync with cometbft.DefaultValidatorPower
+	out := make(map[string]int64)
+	for _, m := range members {
+		if m.PublicKey == "" {
+			continue
+		}
+		// NodeID is hex(pubkey); PublicKey must be 64 hex chars (32 bytes).
+		if len(m.PublicKey) != 64 {
+			continue
+		}
+		out[m.PublicKey] = power
+	}
+	return out
 }

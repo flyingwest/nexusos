@@ -66,3 +66,54 @@ func TestSignVerifyAndApplyImageAndContainer(t *testing.T) {
 		t.Fatal("missing tombstone")
 	}
 }
+
+func TestJoinAndLeaveMemberApply(t *testing.T) {
+	kpA, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kpB, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	join, err := NewTx(kpA, MsgJoinMember, MemberPayload{
+		NodeID:    kpB.NodeID,
+		PublicKey: kpB.PublicJSON().PublicKey,
+		Label:     "peer",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyTx(join); err != nil {
+		t.Fatal(err)
+	}
+	st := NewState()
+	if err := ApplyTx(st, join); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Members) != 2 {
+		t.Fatalf("want signer+peer, got %d", len(st.Members))
+	}
+	if _, ok := st.Members[kpA.NodeID]; !ok {
+		t.Fatal("missing signer")
+	}
+	if st.Members[kpB.NodeID].Label != "peer" {
+		t.Fatalf("peer: %+v", st.Members[kpB.NodeID])
+	}
+	pow := MembershipPower(st.Members)
+	if len(pow) != 2 || pow[kpA.PublicJSON().PublicKey] != 10 {
+		t.Fatalf("power: %+v", pow)
+	}
+
+	leave, err := NewTx(kpA, MsgLeaveMember, MemberPayload{NodeID: kpB.NodeID}, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTx(st, leave); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.Members[kpB.NodeID]; ok {
+		t.Fatal("B should be gone")
+	}
+}

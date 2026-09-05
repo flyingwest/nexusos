@@ -92,10 +92,11 @@ ResourceSpec {
 
 ## Main Transaction Types (initial set)
 
-On-chain today (permissioned hash-chain):
+On-chain today (CometBFT ABCI / hash-chain):
 
 - RegisterImage / VerifyImage
 - CreateContainer / UpdateContainer / RemoveContainer
+- JoinMember / LeaveMember (permissioned membership; drives CometBFT validators)
 
 Still off-chain (HTTP snapshot / local):
 

@@ -1,8 +1,8 @@
 // Package cometbft implements an ABCI application and in-process CometBFT node
 // that map NexusOS ledger txs (image integrity + placement) onto consensus.
 //
-// Default coordinator engine remains the permissioned hash-chain; enable with
-// --consensus-engine=cometbft or --cometbft. See docs/cometbft-spike.md.
+// Default coordinator engine is CometBFT; hash-chain remains selectable via
+// --consensus-engine=hashchain (deprecated). See docs/cometbft-spike.md.
 package cometbft
 
 import (
@@ -25,7 +25,7 @@ import (
 //
 // Validator set: ABCI 2.0 has no separate EndBlock; ValidatorUpdates are
 // returned from FinalizeBlock (take effect at height+2). The app diffs
-// membership-derived Ed25519 pubkeys against the tracked set each block.
+// ledger Members (JoinMember/LeaveMember txs) against the tracked set each block.
 type App struct {
 	abcitypes.BaseApplication
 
@@ -141,7 +141,7 @@ func (a *App) FinalizeBlock(_ context.Context, req *abcitypes.RequestFinalizeBlo
 	appHash := hashState(&st)
 
 	a.mu.Lock()
-	valUpdates := a.validatorUpdatesLocked()
+	valUpdates := a.validatorUpdatesFromLedgerLocked(&st)
 	a.pending = accepted
 	a.height = req.Height
 	a.appHash = appHash
@@ -154,9 +154,13 @@ func (a *App) FinalizeBlock(_ context.Context, req *abcitypes.RequestFinalizeBlo
 	}, nil
 }
 
-// validatorUpdatesLocked diffs membership → tracked set. Caller holds a.mu.
-func (a *App) validatorUpdatesLocked() []abcitypes.ValidatorUpdate {
-	desired := MembershipPowerByPubKey(a.Members)
+// validatorUpdatesFromLedgerLocked diffs consensus Members → tracked set.
+// Caller holds a.mu. Empty ledger Members → no updates (preserve genesis).
+func (a *App) validatorUpdatesFromLedgerLocked(st *ledger.State) []abcitypes.ValidatorUpdate {
+	var desired map[string]int64
+	if st != nil {
+		desired = ledger.MembershipPower(st.Members)
+	}
 	updates := DiffValidatorUpdates(a.valSet, desired, a.localPubKeyHex)
 	if len(updates) == 0 {
 		return nil
@@ -195,18 +199,46 @@ func (a *App) validateBytes(raw []byte) (ledger.Tx, uint32, string) {
 	if err := ledger.VerifyTx(tx); err != nil {
 		return ledger.Tx{}, CodeBadSig, err.Error()
 	}
-	if a.Members != nil && !a.Members.Contains(tx.NodeID) {
-		return ledger.Tx{}, CodeNotMember, fmt.Sprintf("tx from non-member %s", tx.NodeID)
-	}
 	switch tx.Type {
 	case ledger.MsgRegisterImage, ledger.MsgVerifyImage,
 		ledger.MsgCreateContainer, ledger.MsgUpdateContainer,
-		ledger.MsgRemoveContainer:
+		ledger.MsgRemoveContainer,
+		ledger.MsgJoinMember, ledger.MsgLeaveMember:
 		// ok
 	default:
 		return ledger.Tx{}, CodeUnsupported, fmt.Sprintf("unsupported tx type %s", tx.Type)
 	}
+	if code, logMsg := a.authorizeSigner(tx); code != CodeOK {
+		return ledger.Tx{}, code, logMsg
+	}
 	return tx, CodeOK, ""
+}
+
+// authorizeSigner enforces permissioned admission.
+// JoinMember may be signed by an existing member, an active validator (genesis
+// FilePV / prior set), or when membership is still open/empty — so a genesis
+// validator can admit a peer before local members.json has been synced.
+func (a *App) authorizeSigner(tx ledger.Tx) (uint32, string) {
+	if tx.Type == ledger.MsgJoinMember {
+		if a.Members == nil || a.Members.IsEmpty() || a.Members.Contains(tx.NodeID) {
+			return CodeOK, ""
+		}
+		a.mu.Lock()
+		_, inVal := a.valSet[tx.PublicKey]
+		a.mu.Unlock()
+		if inVal {
+			return CodeOK, ""
+		}
+		st := a.Ledger.Snapshot()
+		if _, ok := st.Members[tx.NodeID]; ok {
+			return CodeOK, ""
+		}
+		return CodeNotMember, fmt.Sprintf("join from non-member/non-validator %s", tx.NodeID)
+	}
+	if a.Members != nil && !a.Members.Contains(tx.NodeID) {
+		return CodeNotMember, fmt.Sprintf("tx from non-member %s", tx.NodeID)
+	}
+	return CodeOK, ""
 }
 
 // consensusDigest is the AppHash input: only fields driven by ABCI txs.
@@ -216,6 +248,7 @@ type consensusDigest struct {
 	Images     map[string]ledger.ImageRecord     `json:"images"`
 	Containers map[string]ledger.ContainerRecord `json:"containers"`
 	Migrations map[string]ledger.MigrationRecord `json:"migrations"`
+	Members    map[string]ledger.MemberRecord    `json:"members,omitempty"`
 	Tombstones map[string]time.Time              `json:"tombstones,omitempty"`
 }
 
@@ -224,6 +257,7 @@ func hashState(st *ledger.State) []byte {
 		Images:     st.Images,
 		Containers: st.Containers,
 		Migrations: st.Migrations,
+		Members:    st.Members,
 		Tombstones: st.Tombstones,
 	}
 	b, err := json.Marshal(d)

@@ -195,7 +195,7 @@ func TestCheckTxRejectsNonMember(t *testing.T) {
 	}
 }
 
-func TestFinalizeBlockValidatorUpdatesFromMembership(t *testing.T) {
+func TestFinalizeBlockValidatorUpdatesFromMembershipTx(t *testing.T) {
 	dir := t.TempDir()
 	led, err := ledger.NewStore(dir)
 	if err != nil {
@@ -205,6 +205,15 @@ func TestFinalizeBlockValidatorUpdatesFromMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	led.BindMembership(func(recs map[string]ledger.MemberRecord) error {
+		list := make([]membership.Member, 0, len(recs))
+		for _, m := range recs {
+			list = append(list, membership.Member{
+				NodeID: m.NodeID, PublicKey: m.PublicKey, Addresses: m.Addresses, Label: m.Label,
+			})
+		}
+		return members.ReplaceAll(list)
+	})
 	kpA, err := identity.Generate()
 	if err != nil {
 		t.Fatal(err)
@@ -223,8 +232,8 @@ func TestFinalizeBlockValidatorUpdatesFromMembership(t *testing.T) {
 	app := NewApp(led, members)
 	app.SetLocalConsensusPubKey(kpA.PublicKey)
 	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 
-	// InitChain with A as genesis validator.
 	_, err = app.InitChain(ctx, &abcitypes.RequestInitChain{
 		Validators: []abcitypes.ValidatorUpdate{
 			abcitypes.Ed25519ValidatorUpdate(kpA.PublicKey, DefaultValidatorPower),
@@ -233,11 +242,8 @@ func TestFinalizeBlockValidatorUpdatesFromMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := app.ValidatorSetSnapshot(); len(got) != 1 || got[aHex] != DefaultValidatorPower {
-		t.Fatalf("after init: %+v", got)
-	}
 
-	// No membership change → no updates.
+	// Empty ledger Members → no updates (local members.json alone is not enough).
 	fb, err := app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -245,14 +251,25 @@ func TestFinalizeBlockValidatorUpdatesFromMembership(t *testing.T) {
 	if len(fb.ValidatorUpdates) != 0 {
 		t.Fatalf("expected no updates, got %d", len(fb.ValidatorUpdates))
 	}
+	_, _ = app.Commit(ctx, &abcitypes.RequestCommit{})
 
-	// Pair B → expect add B.
-	if err := members.Upsert(membership.Member{NodeID: kpB.NodeID, PublicKey: bHex}); err != nil {
-		t.Fatal(err)
-	}
-	fb, err = app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 2})
+	// JoinMember(B) signed by genesis validator A → add B.
+	join, err := ledger.NewTx(kpA, ledger.MsgJoinMember, ledger.MemberPayload{
+		NodeID: kpB.NodeID, PublicKey: bHex, Label: "peer",
+	}, now)
 	if err != nil {
 		t.Fatal(err)
+	}
+	joinBz, err := EncodeTx(join)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, err = app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 2, Txs: [][]byte{joinBz}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fb.TxResults) != 1 || fb.TxResults[0].Code != CodeOK {
+		t.Fatalf("JoinMember result: %+v", fb.TxResults)
 	}
 	if len(fb.ValidatorUpdates) != 1 || fb.ValidatorUpdates[0].Power != DefaultValidatorPower {
 		t.Fatalf("want add B: %+v", fb.ValidatorUpdates)
@@ -261,16 +278,27 @@ func TestFinalizeBlockValidatorUpdatesFromMembership(t *testing.T) {
 	if gotB != bHex {
 		t.Fatalf("got %s want %s", gotB, bHex)
 	}
-	snap := app.ValidatorSetSnapshot()
-	if len(snap) != 2 {
-		t.Fatalf("snap=%+v", snap)
-	}
-
-	// Leave B → power 0.
-	if err := members.Remove(kpB.NodeID); err != nil {
+	_, err = app.Commit(ctx, &abcitypes.RequestCommit{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	fb, err = app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 3})
+	if !members.Contains(kpB.NodeID) || !members.Contains(kpA.NodeID) {
+		t.Fatalf("membership cache not synced: %v", members.IDs())
+	}
+	if len(led.Snapshot().Members) != 2 {
+		t.Fatalf("ledger members=%d", len(led.Snapshot().Members))
+	}
+
+	// LeaveMember(B) → power 0.
+	leave, err := ledger.NewTx(kpA, ledger.MsgLeaveMember, ledger.MemberPayload{NodeID: kpB.NodeID}, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaveBz, err := EncodeTx(leave)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, err = app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 3, Txs: [][]byte{leaveBz}})
 	if err != nil {
 		t.Fatal(err)
 	}

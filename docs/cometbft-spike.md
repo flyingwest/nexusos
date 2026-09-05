@@ -1,6 +1,6 @@
 # CometBFT embed (feature-flagged)
 
-**Status**: in-process node + mempool Submit + dynamic validators + two-node e2e harness / not default  
+**Status**: in-process node + mempool Submit + membership txs + dynamic validators + two-node e2e / not default  
 **Date**: 2026-09-05 (updated)  
 **Module**: `github.com/cometbft/cometbft v0.38.26` (ABCI 2.0 line; Go 1.22+). `coordination/go.mod` uses `go 1.22.11` (+ toolchain).
 
@@ -36,13 +36,15 @@ This document describes the feature-flagged path that runs **CometBFT as the con
 | `RegisterImage` / `VerifyImage` | CheckTx → FinalizeBlock → Commit | `ImagePayload` JSON in `ledger.Tx` |
 | `CreateContainer` / `UpdateContainer` | same | placement |
 | `RemoveContainer` | same | tombstone via `ApplyTx` |
+| `JoinMember` / `LeaveMember` | same | consensus-ordered membership; drives ValidatorUpdates |
 | Heartbeats / node upserts | **not** on ABCI | stay on HTTP snapshot sync |
 
 Wire encoding: **JSON of `ledger.Tx`** (`EncodeTx` / `DecodeTx`). Signatures remain Ed25519 over the existing `nexusos-tx-v1` domain string.
 
-`CheckTx`: decode → `ledger.VerifyTx` → membership check → dry-run `ApplyTx` on a snapshot.  
-`FinalizeBlock`: same validation; stage successful txs; compute `AppHash` = SHA-256 of consensus fields only (images/containers/migrations/tombstones — not nodes); **emit `ValidatorUpdates`** (ABCI 2.0 EndBlock equivalent).  
-`Commit`: `Store.ApplyTxs(pending)` + persist ABCI height/app-hash/validator-set meta under `data-dir/cometbft/abci-meta.json`.
+`CheckTx`: decode → `ledger.VerifyTx` → authorize signer → dry-run `ApplyTx` on a snapshot.  
+`JoinMember` authorization: existing member, open/empty membership, **or** active CometBFT validator (so genesis FilePV can admit a peer before `members.json` syncs).  
+`FinalizeBlock`: same validation; stage successful txs; compute `AppHash` = SHA-256 of consensus fields (images/containers/migrations/**members**/tombstones — not nodes); **emit `ValidatorUpdates`** from **ledger `Members`** (not local HTTP `members.json` alone).  
+`Commit`: `Store.ApplyTxs(pending)` (syncs local membership cache via `BindMembership`) + persist ABCI meta under `data-dir/cometbft/abci-meta.json`.
 
 ## Operator Submit path (strict)
 
@@ -61,10 +63,11 @@ CometBFT v0.38 has **no separate EndBlock RPC**; apps return `ResponseFinalizeBl
 | Event | Behavior |
 |-------|----------|
 | InitChain | Track genesis validators in app `valSet` |
-| Membership join/pair (member with 32-byte Ed25519 `public_key`) | Next FinalizeBlock diffs → add/update power |
-| Membership leave | Diff → power `0` removal (never leave zero validators) |
-| Empty membership / no usable keys | **No updates** — preserve genesis FilePV (single-node safe) |
-| Non-validator peer (local FilePV not yet in active set) | Only **pure expansions** allowed (desired ⊇ current). Prevents a node whose membership is still `{self}` from proposing to replace genesis before pair. |
+| `JoinMember` tx (after HTTP join-token pair) | FinalizeBlock diffs ledger Members → add/update power |
+| `LeaveMember` tx | Diff → power `0` removal (never leave zero validators; empty desired preserves genesis) |
+| Empty ledger Members / no usable keys | **No updates** — preserve genesis FilePV (single-node safe) |
+| Non-validator peer (local FilePV not yet in active set) | Only **pure expansions** allowed (desired ⊇ current). |
+| HTTP `members.json` alone | **Does not** drive ValidatorUpdates (prevents NextValidatorsHash divergence) |
 
 ### Power / pubkey mapping
 
@@ -76,7 +79,11 @@ Tracked `valSet` is persisted in `abci-meta.json` so restarts do not re-flood up
 
 ### Determinism note (multi-node)
 
-`FinalizeBlock` must compute identical `ValidatorUpdates` on every peer at a given height. Membership is still an HTTP-local store, so **pairing mid-catch-up** can diverge (`NextValidatorsHash` mismatch). Lab/e2e pattern: pair (or pre-seed `members.json`) **before** starting CometBFT on both nodes so membership is identical for all heights. Membership-as-consensus-tx remains deferred.
+`FinalizeBlock` must compute identical `ValidatorUpdates` on every peer at a given height. **Membership join/leave now flow through consensus txs** (`JoinMember` / `LeaveMember`) so ledger `Members` (and thus validator diffs) are ordered with the chain. HTTP pair still verifies the join-token, then submits `JoinMember` via mempool. Local `members.json` is a cache synced on commit.
+
+**Leave judgment**: `LeaveMember` is modeled, but `DiffValidatorUpdates` keeps expand-only / non-empty safety (empty desired → preserve genesis; non-validator locals cannot replace the active set). Prefer expand-only ops in production until a safer leave/eviction story exists.
+
+Lab/e2e: start CometBFT (shared genesis + peers), **then** pair — pair-before-start is no longer required.
 
 ## Validators / peers vs NexusOS membership
 
@@ -152,5 +159,6 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 - [x] Dynamic FinalizeBlock validator updates from membership (+ unit tests)
 - [x] Identity-seeded FilePV for key correlation; safe single-node when membership empty
 - [x] Two-node Go e2e: tx on A applied on B via consensus (`TestTwoNodeConsensusAppliesTxOnPeer`)
-- [x] Scripted harness `scripts/e2e-cometbft-two-node.sh` + run docs
-- [x] Default engine remains `hashchain`
+- [x] Membership as consensus tx + validator updates (`TestFinalizeBlockValidatorUpdatesFromMembershipTx`, `TestTwoNodeJoinMemberAfterStart`)
+- [x] Scripted harness `scripts/e2e-cometbft-two-node.sh` (pair-after-start) + run docs
+- [x] Default engine remains `hashchain` (until cutover PR)

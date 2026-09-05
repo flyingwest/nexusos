@@ -12,9 +12,10 @@ import (
 // Store is a local persistence of network ledger state.
 // In Phase 2 this will be driven by consensus; for now it is local-only.
 type Store struct {
-	mu   sync.RWMutex
-	path string
-	data *State
+	mu             sync.RWMutex
+	path           string
+	data           *State
+	onMemberCommit func(map[string]MemberRecord) error // optional local membership sync
 }
 
 func NewStore(dataDir string) (*Store, error) {
@@ -27,6 +28,14 @@ func NewStore(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// BindMembership wires a callback invoked after Join/Leave Member txs commit
+// so the local membership cache matches consensus-ordered ledger state.
+func (s *Store) BindMembership(fn func(map[string]MemberRecord) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onMemberCommit = fn
 }
 
 func (s *Store) load() error {
@@ -53,6 +62,9 @@ func (s *Store) load() error {
 	if st.Tombstones == nil {
 		st.Tombstones = make(map[string]time.Time)
 	}
+	if st.Members == nil {
+		st.Members = make(map[string]MemberRecord)
+	}
 	s.data = &st
 	return nil
 }
@@ -78,6 +90,7 @@ func (s *Store) Snapshot() State {
 		Images:     make(map[string]ImageRecord, len(s.data.Images)),
 		Containers: make(map[string]ContainerRecord, len(s.data.Containers)),
 		Migrations: make(map[string]MigrationRecord, len(s.data.Migrations)),
+		Members:    make(map[string]MemberRecord, len(s.data.Members)),
 		Tombstones: make(map[string]time.Time, len(s.data.Tombstones)),
 	}
 	for k, v := range s.data.Nodes {
@@ -91,6 +104,9 @@ func (s *Store) Snapshot() State {
 	}
 	for k, v := range s.data.Migrations {
 		out.Migrations[k] = v
+	}
+	for k, v := range s.data.Members {
+		out.Members[k] = v
 	}
 	for k, v := range s.data.Tombstones {
 		out.Tombstones[k] = v
@@ -219,10 +235,35 @@ func (s *Store) RemoveContainer(id string) error {
 func (s *Store) ApplyTxs(txs []Tx) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	membershipTouched := false
 	for i, tx := range txs {
 		if err := ApplyTx(s.data, tx); err != nil {
 			return fmt.Errorf("tx %d (%s): %w", i, tx.Type, err)
 		}
+		if tx.Type == MsgJoinMember || tx.Type == MsgLeaveMember {
+			membershipTouched = true
+		}
 	}
-	return s.save()
+	if err := s.save(); err != nil {
+		return err
+	}
+	if membershipTouched {
+		return s.syncMembershipLocked()
+	}
+	return nil
+}
+
+func (s *Store) syncMembershipLocked() error {
+	if s.onMemberCommit == nil {
+		return nil
+	}
+	// Empty ledger members: keep local bootstrap membership (self) intact.
+	if len(s.data.Members) == 0 {
+		return nil
+	}
+	cp := make(map[string]MemberRecord, len(s.data.Members))
+	for k, v := range s.data.Members {
+		cp[k] = v
+	}
+	return s.onMemberCommit(cp)
 }
