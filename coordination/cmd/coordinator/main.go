@@ -16,6 +16,7 @@ import (
 	"github.com/nexusos/coordination/internal/api/httpapi"
 	"github.com/nexusos/coordination/internal/config"
 	"github.com/nexusos/coordination/internal/consensus"
+	"github.com/nexusos/coordination/internal/consensus/cometbft"
 	"github.com/nexusos/coordination/internal/identity"
 	"github.com/nexusos/coordination/internal/ledger"
 	"github.com/nexusos/coordination/internal/membership"
@@ -39,6 +40,8 @@ func main() {
 	heartbeatTimeout := flag.Duration("heartbeat-timeout", 0, "mark peers offline after this silence (default: 30s)")
 	useConsensus := flag.Bool("consensus", true, "commit image integrity and placement via permissioned hash-chain consensus")
 	consensusTimeout := flag.Duration("consensus-timeout", 0, "how long to wait for a quorum (default: 5s)")
+	consensusEngine := flag.String("consensus-engine", config.ConsensusEngineHashchain, "consensus engine: hashchain (default) | cometbft (spike)")
+	cometbftFlag := flag.Bool("cometbft", false, "shorthand for --consensus-engine=cometbft (spike; not default)")
 	dev := flag.Bool("dev", false, "insecure local experiments: allow empty tokens and auto self-signed TLS")
 	insecureDev := flag.Bool("insecure-dev", false, "alias for --dev")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (required unless --dev)")
@@ -78,6 +81,15 @@ func main() {
 	if *consensusTimeout > 0 {
 		cfg.ConsensusTimeout = *consensusTimeout
 	}
+	engineName := *consensusEngine
+	if *cometbftFlag {
+		engineName = config.ConsensusEngineCometBFT
+	}
+	normalized, err := config.NormalizeConsensusEngine(engineName)
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	cfg.ConsensusEngine = normalized
 	cfg.Dev = *dev || *insecureDev
 	cfg.TLSCertFile = *tlsCert
 	cfg.TLSKeyFile = *tlsKey
@@ -143,6 +155,7 @@ func main() {
 	fmt.Printf("Peers       : %v\n", cfg.Peers)
 	fmt.Printf("HB timeout  : %s\n", cfg.HeartbeatTimeout)
 	fmt.Printf("Consensus   : %v\n", cfg.Consensus)
+	fmt.Printf("Cons. engine: %s\n", cfg.ConsensusEngine)
 	fmt.Println()
 
 	store, err := state.NewStore(cfg.DataDir, kp.NodeID)
@@ -203,7 +216,11 @@ func main() {
 	}
 
 	var ceng *consensus.Engine
-	if cfg.Consensus {
+	var cmtApp *cometbft.App
+	if cfg.Consensus && cfg.ConsensusEngine == config.ConsensusEngineCometBFT {
+		cmtApp = cometbft.NewApp(ledgerStore, members)
+		log.Printf("CometBFT spike: ABCI app ready (engine=%s, height=%d). Full consensus node not started; see docs/cometbft-spike.md and cmd/cometbft-abci-harness", cfg.ConsensusEngine, cmtApp.Height())
+	} else if cfg.Consensus {
 		chain, err := consensus.NewChain(cfg.DataDir)
 		if err != nil {
 			log.Fatalf("consensus chain: %v", err)

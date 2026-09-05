@@ -196,3 +196,12 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 
 **Status**: Accepted
 
+---
+
+## 2026-09-04 – CometBFT embed spike (feature-flagged)
+
+**Decision**: Start a **feature-flagged CometBFT embed spike** behind `--consensus-engine=hashchain|cometbft` (default **`hashchain`**; shorthand `--cometbft`). Implement an **in-process ABCI application** that accepts existing `ledger.Tx` JSON for image integrity and placement and applies via `ledger.ApplyTx` / `Store.ApplyTxs`. Do **not** flip the default, do **not** remove `internal/consensus` hash-chain, and do **not** ship a full multi-node CometBFT e2e in this increment. Pin official module `github.com/cometbft/cometbft v0.38.26` (ABCI 2.0, Go 1.22+).
+
+**Rationale**: Phase 2 freeze deferred full BFT; the hash-chain proved ordered attributable writes. The next honest increment is proving CometBFT can drive the **same** ledger schema without a cutover. In-process ABCI keeps types and tests local; a socket harness (`cmd/cometbft-abci-harness`) documents sidecar attach for a later PR. Security bar (API token + join-token + TLS outside `--dev`) is unchanged.
+
+**Status**: Accepted (spike)

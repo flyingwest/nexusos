@@ -54,9 +54,11 @@ Deliverables:
 - [x] Permissioned hash-chain consensus for image integrity + placement (`ceil(2n/3)`, `--consensus`)
 - [x] Required join-token + API token + TLS (with `--dev` escape hatch)
 - [x] Mock two-node e2e script
-- [ ] Embed CometBFT (or equivalent BFT engine) in place of the homegrown proposer — **deferred past freeze**
+- [ ] Embed CometBFT (or equivalent BFT engine) in place of the homegrown proposer — **in-progress spike** (feature-flagged ABCI app; default remains hash-chain; see `docs/cometbft-spike.md`)
 
 **Exit criteria**: Two or more nodes agree on which containers are running where and which images have been verified. ✅ Met for HTTP sync (eventual) and for consensus commits when a quorum is present. Security bar (tokens+TLS) ✅. Full BFT finality remains deferred — see `docs/phase2-freeze.md`.
+
+**CometBFT spike (2026-09-04)**: Feature-flagged ABCI application under `coordination/internal/consensus/cometbft` (`--consensus-engine=cometbft`). Default path is still hash-chain. Design: `docs/cometbft-spike.md`.
 
 ---
 
