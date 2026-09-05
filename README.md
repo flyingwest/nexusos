@@ -8,7 +8,7 @@ The shared ledger tracks **container image integrity** and **which containers ru
 
 Native orchestration exists, but it is secondary to the distributed OS foundation.
 
-> **Status**: Phase 2 **FROZEN** — permissioned peer ledger sync + hash-chain consensus, hardened with required join-token + API token + TLS. Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)). **Spike**: feature-flagged CometBFT in-process node + dynamic validators (not default) — see [docs/cometbft-spike.md](docs/cometbft-spike.md).
+> **Status**: Phase 2 **FROZEN** baseline + post-freeze packaging. Permissioned peer ledger sync, required join-token + API token + TLS. **Default consensus engine is CometBFT** (in-process); hash-chain remains selectable via `--consensus-engine=hashchain` for a deprecation window — see [docs/cometbft-spike.md](docs/cometbft-spike.md). Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
 
 ---
 
@@ -126,13 +126,15 @@ A node that misses heartbeats for `--heartbeat-timeout` (default 30s) is marked 
 
 containerd remains supported via `--mock=false` but is **not** required for CI or the mock e2e path.
 
-### CometBFT spike (opt-in, not default)
+### Consensus engine (CometBFT default)
 
-A feature-flagged in-process CometBFT node maps existing ledger image/placement txs onto consensus (strict mempool Submit, dynamic validators from membership). Default remains the permissioned hash-chain (`--consensus-engine=hashchain`). See [docs/cometbft-spike.md](docs/cometbft-spike.md).
+Default `--consensus-engine=cometbft` runs an in-process CometBFT node (strict mempool Submit, membership `JoinMember`/`LeaveMember` txs, dynamic validators). Hash-chain remains available via `--consensus-engine=hashchain` (deprecated; logs a warning). See [docs/cometbft-spike.md](docs/cometbft-spike.md).
 
 ```bash
-./bin/coordinator --dev --mock --cometbft
-./scripts/e2e-cometbft-two-node.sh   # two-node CometBFT mock harness
+./bin/coordinator --dev --mock   # CometBFT by default
+./bin/coordinator --dev --mock --consensus-engine=hashchain   # deprecated path
+./scripts/e2e-cometbft-two-node.sh   # two-node CometBFT mock harness (pair-after-start)
+./scripts/e2e-two-node-mock.sh       # explicit hash-chain two-node path
 ```
 
 ---
@@ -152,7 +154,7 @@ nexusos/
 │   ├── decisions.md
 │   ├── phase2-freeze.md    # Phase 2 exit / freeze checklist
 │   ├── node-image.md       # Debian Bookworm node image build/boot
-│   └── cometbft-spike.md   # CometBFT embed (feature-flagged; not default)
+│   └── cometbft-spike.md   # CometBFT embed (default engine; hash-chain deprecated)
 ├── coordination/           # Go module – coordination service
 │   ├── cmd/coordinator/
 │   ├── cmd/nexusctl/
@@ -165,7 +167,7 @@ nexusos/
 │       ├── ledger/         # placement + image integrity
 │       ├── p2p/            # signed snapshot sync
 │       ├── consensus/      # permissioned hash-chain (placement + images)
-│       │   └── cometbft/   # in-process CometBFT + ABCI (opt-in; not default)
+│       │   └── cometbft/   # in-process CometBFT + ABCI (default engine)
 │       └── state/
 ├── scripts/                # install.sh, e2e, qemu-node-smoke/two-node-e2e.sh
 ├── deploy/                 # systemd unit

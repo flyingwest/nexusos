@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Mock two-node e2e: build, start A+B over HTTPS (--dev self-signed), pair, pull/start, sync, assert ledger on B.
 # Uses --dev for auto self-signed TLS; API + join tokens are still set to match the hardened security bar.
+# Explicit --consensus-engine=hashchain keeps the deprecated hash-chain path tested (default is now cometbft;
+# two mock nodes without shared CometBFT genesis/peers are not a CometBFT mesh).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -43,6 +45,7 @@ echo "==> Starting coordinator A on :${PORT_A}"
   --join-token "$JOIN_TOKEN" \
   --advertise "$API_A" \
   --sync-interval 1h \
+  --consensus-engine=hashchain \
   >"$LOG_A" 2>&1 &
 PID_A=$!
 
@@ -54,6 +57,7 @@ echo "==> Starting coordinator B on :${PORT_B}"
   --join-token "$JOIN_TOKEN" \
   --advertise "$API_B" \
   --sync-interval 1h \
+  --consensus-engine=hashchain \
   >"$LOG_B" 2>&1 &
 PID_B=$!
 

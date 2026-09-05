@@ -161,3 +161,176 @@ func TestTwoNodeConsensusAppliesTxOnPeer(t *testing.T) {
 		t.Fatalf("B image size=%d", img.Size)
 	}
 }
+
+// TestTwoNodeJoinMemberAfterStart proves pair-before-CometBFT-start is no longer
+// required: nodes start with only local membership, JoinMember goes through
+// consensus, then an image tx applies on the peer.
+func TestTwoNodeJoinMemberAfterStart(t *testing.T) {
+	dir := t.TempDir()
+	dirA := filepath.Join(dir, "a")
+	dirB := filepath.Join(dir, "b")
+	for _, d := range []string{dirA, dirB} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	kpA, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kpB, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bind := func(led *ledger.Store, mem *membership.Store) {
+		led.BindMembership(func(recs map[string]ledger.MemberRecord) error {
+			list := make([]membership.Member, 0, len(recs))
+			for _, m := range recs {
+				list = append(list, membership.Member{
+					NodeID: m.NodeID, PublicKey: m.PublicKey, Addresses: m.Addresses, Label: m.Label,
+				})
+			}
+			return mem.ReplaceAll(list)
+		})
+	}
+
+	ledA, err := ledger.NewStore(dirA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledB, err := ledger.NewStore(dirB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memA, err := membership.NewStore(dirA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memB, err := membership.NewStore(dirB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bind(ledA, memA)
+	bind(ledB, memB)
+
+	// Only local self — no pair-before-start.
+	for _, pair := range []struct {
+		mem *membership.Store
+		kp  *identity.KeyPair
+		lab string
+	}{
+		{memA, kpA, "a"},
+		{memB, kpB, "b"},
+	} {
+		if err := pair.mem.Upsert(membership.Member{
+			NodeID: pair.kp.NodeID, PublicKey: pair.kp.PublicJSON().PublicKey, Label: pair.lab,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	appA := NewApp(ledA, memA)
+	rpcA := freeTCPAddr(t)
+	p2pA := freeTCPAddr(t)
+	homeA := filepath.Join(dirA, "cometbft")
+	nodeA, err := StartNode(appA, NodeOptions{
+		HomeDir: homeA, ChainID: "nexusos-e2e-join", RPCListen: rpcA, P2PListen: p2pA,
+		Moniker: "a", Members: memA, IdentityPriv: kpA.PrivateKey,
+	})
+	if err != nil {
+		t.Fatalf("start A: %v", err)
+	}
+	defer func() { _ = nodeA.Stop() }()
+
+	deadline := time.Now().Add(25 * time.Second)
+	for appA.Height() < 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("A height timeout; h=%d", appA.Height())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	homeB := filepath.Join(dirB, "cometbft")
+	if err := os.MkdirAll(filepath.Join(homeB, "config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	genBytes, err := os.ReadFile(filepath.Join(homeA, "config", "genesis.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(homeB, "config", "genesis.json"), genBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	peer := nodeA.NodeID() + "@" + PeerListenHostPort(p2pA)
+	appB := NewApp(ledB, memB)
+	nodeB, err := StartNode(appB, NodeOptions{
+		HomeDir: homeB, ChainID: "nexusos-e2e-join", RPCListen: freeTCPAddr(t), P2PListen: freeTCPAddr(t),
+		Moniker: "b", Members: memB, IdentityPriv: kpB.PrivateKey, PersistentPeers: peer,
+	})
+	if err != nil {
+		t.Fatalf("start B: %v", err)
+	}
+	defer func() { _ = nodeB.Stop() }()
+
+	deadline = time.Now().Add(45 * time.Second)
+	for appB.Height() < 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("B sync timeout; A.h=%d B.h=%d", appA.Height(), appB.Height())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Admit B via consensus (no local members.json pair beforehand on both).
+	join, err := ledger.NewTx(kpA, ledger.MsgJoinMember, ledger.MemberPayload{
+		NodeID: kpB.NodeID, PublicKey: kpB.PublicJSON().PublicKey, Label: "peer",
+	}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := nodeA.Submit(ctx, join); err != nil {
+		t.Fatalf("JoinMember: %v", err)
+	}
+
+	deadline = time.Now().Add(30 * time.Second)
+	for {
+		if _, ok := ledB.Snapshot().Members[kpB.NodeID]; ok {
+			if _, okA := ledB.Snapshot().Members[kpA.NodeID]; okA {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("B missing ledger members after JoinMember; A=%v B=%v",
+				ledA.Snapshot().Members, ledB.Snapshot().Members)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Allow ValidatorUpdates (height+2) to settle.
+	time.Sleep(3 * time.Second)
+
+	digest := "sha256:e2e-join-" + kpA.NodeID[:8]
+	tx, err := ledger.NewTx(kpA, ledger.MsgRegisterImage, ledger.ImagePayload{Digest: digest, Size: 3}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel2()
+	if err := nodeA.Submit(ctx2, tx); err != nil {
+		t.Fatalf("image submit: %v", err)
+	}
+	deadline = time.Now().Add(30 * time.Second)
+	for {
+		if _, ok := ledB.Snapshot().Images[digest]; ok {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("B missing image; A.h=%d B.h=%d", appA.Height(), appB.Height())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}

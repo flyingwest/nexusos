@@ -226,3 +226,27 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 **Rationale**: Membership join/pair/leave is the permissioned source of truth; FinalizerBlock is the ABCI 2.0 place to propose validator diffs. Identity-seeded FilePV closes the keyring gap for new data dirs without breaking existing random FilePV single-node clusters. Multi-node still requires an explicit shared genesis (honest operational step) rather than inventing genesis gossip in this increment.
 
 **Status**: Accepted
+
+
+---
+
+## 2026-09-05 – Membership as consensus tx (CometBFT)
+
+**Decision**: Admit/leave peers via `ledger.Tx` types `JoinMember` / `LeaveMember` applied through ABCI (and hash-chain Submit when that engine is selected). Drive CometBFT `FinalizeBlock.ValidatorUpdates` from **ledger `State.Members`**, not from HTTP-local `members.json` alone. HTTP pair still checks the join-token, then submits `JoinMember`. Sync the local membership cache on commit (`BindMembership` / `ReplaceAll`). Do **not** merge `Members` over HTTP snapshot sync.
+
+**Leave judgment**: Keep `DiffValidatorUpdates` safety (never empty set; expand-only for non-validator locals). `LeaveMember` is available but operators should prefer expand-only until a stronger eviction story exists.
+
+**Rationale**: Pairing that mutated only local membership caused `NextValidatorsHash` divergence when nodes paired at different heights. Ordering membership with ledger state removes the pair-before-CometBFT-start requirement.
+
+**Status**: Accepted
+
+
+---
+
+## 2026-09-05 – Flip default consensus engine to CometBFT
+
+**Decision**: Default `--consensus-engine` to **`cometbft`**. Keep `--consensus-engine=hashchain` for a deprecation window and log a clear warning when it is selected. **Do not delete** hash-chain code in this PR. Explicit hash-chain remains the path for mock two-node HTTP e2e and smoke/QEMU two-guest images that lack shared CometBFT genesis/`--cometbft-peers`.
+
+**Rationale**: Membership txs + dynamic validators + two-node e2e unblocked cutting over the default. Operators who need the old path can opt in explicitly during the window.
+
+**Status**: Accepted

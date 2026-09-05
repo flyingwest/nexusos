@@ -12,11 +12,11 @@ const (
 )
 
 // NormalizeConsensusEngine returns a canonical engine name or an error.
-// Empty defaults to hashchain (current production path).
+// Empty defaults to cometbft. Hash-chain remains available for a deprecation window.
 func NormalizeConsensusEngine(s string) (string, error) {
 	v := strings.ToLower(strings.TrimSpace(s))
 	if v == "" {
-		return ConsensusEngineHashchain, nil
+		return ConsensusEngineCometBFT, nil
 	}
 	switch v {
 	case ConsensusEngineHashchain, ConsensusEngineCometBFT:

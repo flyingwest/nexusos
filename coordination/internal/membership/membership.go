@@ -132,6 +132,21 @@ func (s *Store) Get(nodeID string) (Member, bool) {
 	return m, ok
 }
 
+// ReplaceAll atomically replaces the membership set (consensus commit sync).
+func (s *Store) ReplaceAll(list []Member) error {
+	s.mu.Lock()
+	s.members = make(map[string]Member, len(list))
+	for _, m := range list {
+		if m.NodeID == "" {
+			s.mu.Unlock()
+			return fmt.Errorf("node_id is required")
+		}
+		s.members[m.NodeID] = m
+	}
+	s.mu.Unlock()
+	return s.save()
+}
+
 // IDs returns sorted member node ids.
 func (s *Store) IDs() []string {
 	s.mu.RLock()

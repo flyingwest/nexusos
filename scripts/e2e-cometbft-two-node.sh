@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 # Two-node CometBFT e2e (mock runtime).
 #
-# Authoritative consensus proof (always run):
-#   Go test TestTwoNodeConsensusAppliesTxOnPeer — shared membership + P2P,
-#   tx on A applied on B via ABCI (not HTTP sync).
+# Authoritative consensus proofs (always run):
+#   TestTwoNodeConsensusAppliesTxOnPeer — tx on A applied on B via ABCI
+#   TestTwoNodeJoinMemberAfterStart — JoinMember after start (no pair-before-start)
 #
-# Coordinator harness:
-#   1) Boot A+B on hash-chain, pair (so both members.json match), stop.
-#   2) Restart both with --cometbft, shared genesis, --cometbft-peers.
+# Coordinator harness (updated flow):
+#   1) Start A with --cometbft; copy genesis; start B with --cometbft-peers.
+#   2) Pair over HTTP after both are on the same chain (JoinMember via consensus).
 #   3) Submit image/placement on A; assert B ledger (sync-interval=1h).
-# This ordering keeps FinalizeBlock ValidatorUpdates deterministic (same
-# membership on every node at every height). Pairing mid-catch-up is unsafe.
 #
 # Run from repo root:
 #   ./scripts/e2e-cometbft-two-node.sh
@@ -70,54 +68,14 @@ mkdir -p bin
 ( cd coordination && go build -o ../bin/nexusctl ./cmd/nexusctl )
 
 echo "==> Go two-node consensus e2e (authoritative)"
-( cd coordination && go test ./internal/consensus/cometbft/ -run TestTwoNodeConsensusAppliesTxOnPeer -count=1 -timeout 3m )
+( cd coordination && go test ./internal/consensus/cometbft/ \
+  -run 'TestTwoNodeConsensusAppliesTxOnPeer|TestTwoNodeJoinMemberAfterStart' \
+  -count=1 -timeout 5m )
 
 rm -rf "$DIR_A" "$DIR_B"
 mkdir -p "$DIR_A" "$DIR_B"
 
-echo "==> Phase 1: hash-chain pair so membership matches on A and B"
-"$COORD" --dev --mock \
-  --listen ":${PORT_A}" \
-  --data-dir "$DIR_A" \
-  --api-token "$API_TOKEN" \
-  --join-token "$JOIN_TOKEN" \
-  --advertise "$API_A" \
-  --sync-interval 1h \
-  --consensus-engine=hashchain \
-  >"$LOG_A" 2>&1 &
-PID_A=$!
-"$COORD" --dev --mock \
-  --listen ":${PORT_B}" \
-  --data-dir "$DIR_B" \
-  --api-token "$API_TOKEN" \
-  --join-token "$JOIN_TOKEN" \
-  --advertise "$API_B" \
-  --sync-interval 1h \
-  --consensus-engine=hashchain \
-  >"$LOG_B" 2>&1 &
-PID_B=$!
-wait_health "$API_A" "$PID_A" "$LOG_A"
-wait_health "$API_B" "$PID_B" "$LOG_B"
-ctl "$API_A" pair "$API_B"
-# Confirm both members files have 2 entries
-python3 - <<PY
-import json, pathlib, sys
-for label, p in [("A", "$DIR_A/members.json"), ("B", "$DIR_B/members.json")]:
-    m=json.loads(pathlib.Path(p).read_text())
-    if len(m) < 2:
-        raise SystemExit(f"{label} members want >=2 got {len(m)}: {m}")
-    print(f"    {label} members={len(m)}")
-PY
-kill "$PID_A" "$PID_B" 2>/dev/null || true
-wait 2>/dev/null || true
-PID_A=""
-PID_B=""
-# Fresh cometbft dirs; keep identity + members
-rm -rf "$DIR_A/cometbft" "$DIR_B/cometbft"
-: >"$LOG_A"
-: >"$LOG_B"
-
-echo "==> Phase 2: start A with --cometbft"
+echo "==> Start A with --cometbft (no pair-before-start)"
 "$COORD" --dev --mock --cometbft \
   --listen ":${PORT_A}" \
   --data-dir "$DIR_A" \
@@ -151,7 +109,7 @@ P2P_HOSTPORT_A="$(echo "$CMT_P2P_A" | sed 's#^tcp://##')"
 PEER_A="${NODE_ID_A}@${P2P_HOSTPORT_A}"
 echo "    A peer=$PEER_A"
 
-echo "==> Phase 2: start B with shared genesis + persistent peer"
+echo "==> Start B with shared genesis + persistent peer"
 mkdir -p "$DIR_B/cometbft/config"
 cp "$GEN_A" "$DIR_B/cometbft/config/genesis.json"
 "$COORD" --dev --mock --cometbft \
@@ -183,8 +141,33 @@ for i in $(seq 1 80); do
   sleep 0.25
 done
 
-# Allow validator update (add B) to take effect at height+2 while both vote.
-echo "==> Settling blocks for validator sync"
+echo "==> Pair A <-> B after CometBFT start (JoinMember via consensus)"
+ctl "$API_A" pair "$API_B"
+
+echo "==> Waiting for ledger members on both nodes"
+for i in $(seq 1 60); do
+  if python3 - <<PY
+import json, pathlib
+for label, p in [("A", "$DIR_A"), ("B", "$DIR_B")]:
+    led=json.loads(pathlib.Path(p+"/ledger.json").read_text())
+    members=led.get("members") or {}
+    if len(members) < 2:
+        raise SystemExit(f"{label} ledger members want >=2 got {len(members)}")
+print("    ledger members OK")
+PY
+  then
+    break
+  fi
+  if [[ "$i" -eq 60 ]]; then
+    echo "FAIL: ledger members did not converge after pair"
+    tail -40 "$LOG_A" || true
+    tail -40 "$LOG_B" || true
+    exit 1
+  fi
+  sleep 0.25
+done
+
+echo "==> Settling blocks for validator sync (JoinMember → height+2)"
 sleep 4
 
 echo "==> Pull + start on A (strict CometBFT Submit)"
@@ -221,7 +204,7 @@ if [[ "$OK" != "1" ]]; then
   echo "---- A log (tail) ----"; tail -60 "$LOG_A" || true
   echo "---- B log (tail) ----"; tail -60 "$LOG_B" || true
   echo "---- B ledger ----"; ctl "$API_B" ledger || true
-  echo "NOTE: Go TestTwoNodeConsensusAppliesTxOnPeer is the authoritative proof; see docs/cometbft-spike.md"
+  echo "NOTE: Go TestTwoNodeJoinMemberAfterStart is the authoritative proof; see docs/cometbft-spike.md"
   exit 1
 fi
 
@@ -233,4 +216,4 @@ for label, p in [("A", "$DIR_A/cometbft/abci-meta.json"), ("B", "$DIR_B/cometbft
     print(label, json.loads(path.read_text()) if path.exists() else "missing")
 PY
 
-echo "==> e2e-cometbft-two-node: PASS (Go test + coordinator harness)"
+echo "==> e2e-cometbft-two-node: PASS (Go tests + coordinator harness, pair-after-start)"

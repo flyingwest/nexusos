@@ -12,6 +12,11 @@ import (
 	"github.com/nexusos/coordination/internal/membership"
 )
 
+// MembershipTxSubmitter commits JoinMember/LeaveMember through consensus.
+type MembershipTxSubmitter interface {
+	Submit(ctx context.Context, tx ledger.Tx) error
+}
+
 // Engine runs heartbeats and permissioned ledger sync with peers.
 type Engine struct {
 	KP               *identity.KeyPair
@@ -25,6 +30,9 @@ type Engine struct {
 	Interval         time.Duration
 	HeartbeatTimeout time.Duration
 	Now              func() time.Time
+	// MembershipTx, when set, admits peers via JoinMember consensus txs instead
+	// of local members.json Upsert (required for CometBFT validator determinism).
+	MembershipTx MembershipTxSubmitter
 }
 
 func (e *Engine) now() time.Time {
@@ -125,7 +133,9 @@ func (e *Engine) HandleHello(h Hello) (Hello, error) {
 }
 
 // HandlePair admits a signed remote node into membership + peer list.
-func (e *Engine) HandlePair(req PairRequest) (Hello, error) {
+// When MembershipTx is set, membership is ordered via JoinMember consensus;
+// local Upsert is skipped (cache syncs on commit). Peer URL is always local.
+func (e *Engine) HandlePair(ctx context.Context, req PairRequest) (Hello, error) {
 	if err := VerifyHello(req.Hello, e.now()); err != nil {
 		return Hello{}, err
 	}
@@ -142,12 +152,13 @@ func (e *Engine) HandlePair(req PairRequest) (Hello, error) {
 	if callback == NormalizeURL(e.Advertise) || req.NodeID == e.KP.NodeID {
 		return Hello{}, fmt.Errorf("cannot pair with self")
 	}
-	if err := e.Members.Upsert(membership.Member{
+	m := membership.Member{
 		NodeID:    req.NodeID,
 		PublicKey: req.PublicKey,
 		Addresses: []string{callback},
 		Label:     "peer",
-	}); err != nil {
+	}
+	if err := e.admitMember(ctx, m); err != nil {
 		return Hello{}, err
 	}
 	if err := e.Peers.Upsert(Peer{
@@ -158,6 +169,31 @@ func (e *Engine) HandlePair(req PairRequest) (Hello, error) {
 		return Hello{}, err
 	}
 	return e.signedHello(), nil
+}
+
+func (e *Engine) admitMember(ctx context.Context, m membership.Member) error {
+	if e.MembershipTx == nil {
+		return e.Members.Upsert(m)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tx, err := ledger.NewTx(e.KP, ledger.MsgJoinMember, ledger.MemberPayload{
+		NodeID:    m.NodeID,
+		PublicKey: m.PublicKey,
+		Addresses: m.Addresses,
+		Label:     m.Label,
+	}, e.now())
+	if err != nil {
+		return err
+	}
+	if err := e.MembershipTx.Submit(ctx, tx); err != nil {
+		// Non-validator side may fail CheckTx; the genesis/active validator's
+		// admit is enough. Keep pairing usable and log.
+		log.Printf("membership JoinMember tx: %v (peer URL still recorded; rely on validator-side admit if needed)", err)
+		return nil
+	}
+	return nil
 }
 
 func (e *Engine) acceptMember(nodeID string) error {
@@ -219,7 +255,7 @@ func (e *Engine) PairWith(ctx context.Context, url string) error {
 	if err := VerifyHello(resp, e.now()); err != nil {
 		return err
 	}
-	if err := e.Members.Upsert(membership.Member{
+	if err := e.admitMember(ctx, membership.Member{
 		NodeID:    resp.NodeID,
 		PublicKey: resp.PublicKey,
 		Addresses: []string{url},

@@ -54,11 +54,12 @@ Deliverables:
 - [x] Permissioned hash-chain consensus for image integrity + placement (`ceil(2n/3)`, `--consensus`)
 - [x] Required join-token + API token + TLS (with `--dev` escape hatch)
 - [x] Mock two-node e2e script
-- [ ] Embed CometBFT (or equivalent BFT engine) in place of the homegrown proposer — **in progress** (feature-flagged in-process node + mempool Submit + dynamic FinalizeBlock validators + two-node e2e harness; default remains hash-chain; cutover deferred — see `docs/cometbft-spike.md`)
+- [x] Embed CometBFT as default consensus engine (in-process node + mempool Submit + membership txs + dynamic validators + two-node e2e) — hash-chain deprecated but not deleted (`docs/cometbft-spike.md`)
+- [ ] Remove hash-chain engine after deprecation window
 
 **Exit criteria**: Two or more nodes agree on which containers are running where and which images have been verified. ✅ Met for HTTP sync (eventual) and for consensus commits when a quorum is present. Security bar (tokens+TLS) ✅. Full BFT finality remains deferred — see `docs/phase2-freeze.md`.
 
-**CometBFT (2026-09-05)**: Feature-flagged in-process CometBFT under `coordination/internal/consensus/cometbft` (`--consensus-engine=cometbft`). Mempool Submit (strict), dynamic validators from membership via FinalizeBlock, identity-seeded FilePV, `--cometbft-peers`, Go two-node consensus e2e + `scripts/e2e-cometbft-two-node.sh`. Default path is still hash-chain. Design: `docs/cometbft-spike.md`.
+**CometBFT (2026-09-05)**: **Default** engine under `coordination/internal/consensus/cometbft`. Mempool Submit (strict), membership as consensus txs (`JoinMember`/`LeaveMember`), dynamic validators from ledger Members, identity-seeded FilePV, `--cometbft-peers`, join-after-start e2e. Hash-chain via `--consensus-engine=hashchain` (deprecated warning). Design: `docs/cometbft-spike.md`.
 
 ---
 

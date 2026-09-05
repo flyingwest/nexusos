@@ -9,6 +9,9 @@ Type=simple
 User=root
 # Production requires --api-token (or NEXUS_API_TOKEN), --join-token, and --tls-cert/--tls-key.
 # Replace CHANGE_ME_* and cert paths before enabling.
+# Default consensus engine is cometbft (in-process). For the deprecated hash-chain:
+#   add --consensus-engine=hashchain
+# Multi-node CometBFT also needs shared genesis + --cometbft-peers (see docs/cometbft-spike.md).
 Environment=NEXUS_API_TOKEN=CHANGE_ME_API_TOKEN
 Environment=NEXUS_JOIN_TOKEN=CHANGE_ME_JOIN_TOKEN
 ExecStart=/usr/local/bin/nexusos-coordinator --mock=false --listen :8080 --data-dir /var/lib/nexusos --join-token ${NEXUS_JOIN_TOKEN} --tls-cert /etc/nexusos/tls.crt --tls-key /etc/nexusos/tls.key

@@ -44,6 +44,14 @@ type RemovePayload struct {
 	ContainerID string `json:"container_id"`
 }
 
+// MemberPayload is JoinMember / LeaveMember.
+type MemberPayload struct {
+	NodeID    string   `json:"node_id"`
+	PublicKey string   `json:"public_key,omitempty"`
+	Addresses []string `json:"addresses,omitempty"`
+	Label     string   `json:"label,omitempty"`
+}
+
 func txSignPayload(tx Tx) string {
 	return fmt.Sprintf("%s\n%s\n%s\n%d\n%s",
 		domainTx, tx.Type, tx.NodeID, tx.Timestamp.UTC().UnixMilli(), string(tx.Payload))
