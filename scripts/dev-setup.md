@@ -14,7 +14,6 @@
 make build   # or go build the two cmd packages into bin/
 ./bin/coordinator --dev --mock --listen :8080 --api-token secret --join-token cluster
 # default consensus engine: cometbft
-# deprecated: add --consensus-engine=hashchain
 ./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure health
 ./scripts/e2e-two-node-mock.sh
 ```
@@ -32,7 +31,7 @@ Then start with `--mock=false` plus tokens and TLS files (not `--dev` for produc
 
 ## Deferred past Phase 2 freeze
 
-1. Replace the homegrown hash-chain proposer with embedded CometBFT when we need BFT finality
+1. CometBFT is the sole consensus engine (hash-chain removed); see docs/cometbft-spike.md
 2. Package a minimal Linux node image — tooling in `image/` + `docs/node-image.md` (manual privileged build)
 3. CRIU cold migration (after the network fabric is boring)
 4. Phase 3 orchestration and UI

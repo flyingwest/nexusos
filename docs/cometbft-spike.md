@@ -1,10 +1,10 @@
-# CometBFT embed (feature-flagged)
+# CometBFT embed (sole consensus engine)
 
-**Status**: **default** consensus engine — in-process node + mempool Submit + membership txs + dynamic validators + safe leave/eviction + shared-genesis bootstrap + two-node e2e  
-**Date**: 2026-09-05 (updated)  
+**Status**: **sole** consensus engine — in-process node + mempool Submit + membership txs + dynamic validators + safe leave/eviction + shared-genesis bootstrap + two-node e2e  
+**Date**: 2026-09-05 (updated; hash-chain removed)  
 **Module**: `github.com/cometbft/cometbft v0.38.26` (ABCI 2.0 line; Go 1.22+). `coordination/go.mod` uses `go 1.22.11` (+ toolchain).
 
-This document describes the path that runs **CometBFT as the default consensus engine** for **image-integrity**, **placement**, and **membership** transactions. The permissioned hash-chain remains available via `--consensus-engine=hashchain` for a **deprecation window** (do not delete that code yet).
+This document describes **CometBFT as the only consensus engine** for **image-integrity**, **placement**, and **membership** transactions. The former permissioned hash-chain engine has been **removed** (see `docs/decisions.md`).
 
 ## Architecture: in-process CometBFT node + ABCI application
 
@@ -25,7 +25,6 @@ This document describes the path that runs **CometBFT as the default consensus e
 │                 ValidatorUpdates)        │
 │  cometbft.Node (in-process consensus)    │── local BroadcastTxCommit
 │  httpapi → TxSubmitter (strict)          │
-│  consensus.Engine (hash-chain; deprecated)│
 └──────────────────────────────────────────┘
 ```
 
@@ -48,13 +47,13 @@ Wire encoding: **JSON of `ledger.Tx`** (`EncodeTx` / `DecodeTx`). Signatures rem
 
 ## Operator Submit path (strict)
 
-When `--consensus-engine=cometbft` (or `--cometbft`):
+When consensus is enabled (default; engine is always `cometbft`):
 
 1. Coordinator starts an in-process CometBFT node.
 2. `httpapi` wires `TxSubmitter` to `cometbft.Node.Submit`.
 3. Image/placement commits call `BroadcastTxCommit` and **do not** fall back to local `UpsertImage` / `UpsertContainer` / `RemoveContainer` on failure.
 
-Hash-chain mode is unchanged: still uses `consensus.Engine.Submit` with local upsert fallback if quorum fails.
+`--consensus-engine=hashchain` is rejected. Local upsert remains only when `--consensus=false` (tests / explicit opt-out).
 
 ## Dynamic validators (membership → FinalizeBlock)
 
@@ -102,7 +101,7 @@ Lab/e2e: start CometBFT (shared genesis + peers), **then** pair — pair-before-
 | Concept | NexusOS today | CometBFT (this PR) |
 |---------|---------------|---------------------|
 | Who may sign ledger txs | `membership.Store` (+ join-token pairing) | Same: ABCI rejects non-members when the set is non-empty |
-| Who votes / proposes | Hash-chain: member IDs as validators, `ceil(2n/3)` | Genesis = local FilePV (identity-seeded when new). Dynamic set via FinalizeBlock from membership |
+| Who votes / proposes | (hash-chain removed) | Genesis = local FilePV (identity-seeded when new). Dynamic set via FinalizeBlock from membership |
 | Peer discovery | `--peers`, pair HTTP, advertise URL | CometBFT: `--cometbft-peers` (`id@host:port`,…). Multi-node needs **shared genesis** via `--cometbft-genesis-from <seed-url>` or `nexusctl cometbft fetch-genesis` (manual copy still works) |
 | Operator API auth | API token + TLS | Unchanged |
 
@@ -122,32 +121,19 @@ Joining nodes must share the seed's `genesis.json` (CometBFT chain ID + initial 
 
 Lab/e2e (`scripts/e2e-cometbft-two-node.sh`) starts B with `--cometbft-genesis-from` (no `cp` of genesis).
 
-## Dual-run / shadow (stub)
+## Dual-run / shadow (retired)
 
-`--consensus-shadow-hashchain` is accepted when the engine is CometBFT. **This release logs intent only** — CometBFT remains the sole commit path; full dual-write + compare against the deprecated hash-chain is deferred (hash-chain removal is step 3; richer dual-run can land in that window). Checklist for a later PR:
+`--consensus-shadow-hashchain` and the hash-chain engine are **gone**. CometBFT is the only commit path; dual-run was never shipped beyond a stub log.
 
-1. Keep `--consensus-engine=cometbft` as the write path (strict Submit).
-2. Optionally run hash-chain Propose/Commit in parallel **without** applying a second ledger mutation (compare digests/heights only).
-3. Fail closed on divergence in CI/lab; never silently prefer hash-chain over CometBFT.
-4. Remove the stub flag once dual-run ships or when hash-chain is deleted.
+## How to run
 
-## How to enable
-
-Default remains hash-chain:
+CometBFT is the default (single-node in-process):
 
 ```bash
 ./bin/coordinator --dev --mock --listen :8080 \
   --api-token secret --join-token cluster
-# Cons. engine: hashchain
-```
-
-CometBFT (single-node in-process):
-
-```bash
-./bin/coordinator --dev --mock --listen :8080 \
-  --api-token secret --join-token cluster \
-  --consensus-engine=cometbft
-# or: --cometbft
+# Cons. engine: cometbft
+# optional: --cometbft / --consensus-engine=cometbft
 # optional: --cometbft-rpc tcp://127.0.0.1:26657 --cometbft-p2p tcp://127.0.0.1:26656
 ```
 
@@ -179,10 +165,10 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 3. ~~**Dynamic validators** via FinalizeBlock from membership~~ ✅
 4. ~~**Multi-node harness** (shared genesis + `--cometbft-peers` + Go e2e)~~ ✅
 5. ~~**Membership as consensus txs** (`JoinMember` / `LeaveMember`)~~ ✅
-6. ~~**Cutover**: default `--consensus-engine=cometbft`~~ ✅ (this release)
-7. **Deprecation window**: `--consensus-engine=hashchain` still works; logs a clear warning. **Do not delete** `internal/consensus` hash-chain code yet.
+6. ~~**Cutover**: default `--consensus-engine=cometbft`~~ ✅
+7. ~~**Deprecation window**~~ ✅ (completed)
 8. ~~**Shared-genesis bootstrap** (HTTP + `--cometbft-genesis-from`)~~ ✅
-9. **Later**: optional full dual-run / remove hash-chain after the deprecation window.
+9. ~~**Remove hash-chain** (engine code, flags, propose/commit HTTP, mock e2e pin)~~ ✅
 
 ## Known risks / deferred
 
@@ -204,6 +190,6 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 - [x] Membership as consensus tx + validator updates (`TestFinalizeBlockValidatorUpdatesFromMembershipTx`, `TestTwoNodeJoinMemberAfterStart`)
 - [x] Safe leave/eviction (`LeaveMember` last-validator refuse + member tombstone + `TestTwoNodeLeaveMember`)
 - [x] Scripted harness `scripts/e2e-cometbft-two-node.sh` (pair-after-start) + run docs
-- [x] Default engine is `cometbft`; hash-chain selectable + deprecation warning
+- [x] Default / sole engine is `cometbft`; hash-chain removed (`--consensus-engine=hashchain` errors)
 - [x] Shared-genesis bootstrap (`GET /v1/cometbft/bootstrap`, `--cometbft-genesis-from`, nexusctl helpers); e2e uses genesis-from
-- [x] `--consensus-shadow-hashchain` stub + dual-run checklist (full dual-write deferred)
+- [x] Shadow dual-run stub retired with hash-chain removal

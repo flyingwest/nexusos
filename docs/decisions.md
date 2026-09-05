@@ -284,3 +284,14 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 
 **Status**: Accepted
 
+
+---
+
+## 2026-09-05 – Remove permissioned hash-chain consensus
+
+**Decision**: Delete the deprecated hash-chain consensus engine (`coordination/internal/consensus` root: Engine/Chain/Propose/Vote/`chain.json`). **CometBFT is the only consensus path.** Reject `--consensus-engine=hashchain` and remove `--consensus-shadow-hashchain` (stub never dual-wrote). Remove hash-chain HTTP (`GET /v1/chain`, `POST /v1/net/propose|commit|tx`) and `nexusctl chain`. Migrate `scripts/e2e-two-node-mock.sh` to a thin wrapper around `e2e-cometbft-two-node.sh`. Smoke/QEMU overlays no longer pin hashchain.
+
+**Rationale**: Deprecation window closed after CometBFT default + membership txs + leave/eviction + shared-genesis bootstrap. Keeping two engines raised operator footguns and test matrix cost. Historical decisions above remain for archaeology.
+
+**Status**: Accepted
+

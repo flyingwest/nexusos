@@ -26,7 +26,7 @@ Package list: `image/packages.list`. Overlay: `image/overlay/`.
 
 ## Consensus engine
 
-Production node images default to **CometBFT** (coordinator default). Multi-node CometBFT still requires shared genesis and `--cometbft-peers` (see `docs/cometbft-spike.md`). The `--dev-smoke` image pins `--consensus-engine=hashchain` so QEMU two-guest e2e can pair over HTTP without a CometBFT mesh. Operators may pass `--consensus-engine=hashchain` on production units during the deprecation window.
+Production and `--dev-smoke` node images use **CometBFT** (the only consensus engine). Multi-node CometBFT requires shared genesis and `--cometbft-peers` or `--cometbft-genesis-from` (see `docs/cometbft-spike.md`). QEMU two-guest pair/sync e2e still relies on HTTP ledger sync between guests; each guest runs its own in-process CometBFT node unless operators wire a shared mesh.
 
 ## Security bar (unchanged from Phase 2)
 

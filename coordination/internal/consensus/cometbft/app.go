@@ -1,8 +1,7 @@
 // Package cometbft implements an ABCI application and in-process CometBFT node
 // that map NexusOS ledger txs (image integrity + placement) onto consensus.
 //
-// Default coordinator engine is CometBFT; hash-chain remains selectable via
-// --consensus-engine=hashchain (deprecated). See docs/cometbft-spike.md.
+// CometBFT is the sole coordinator consensus engine. See docs/cometbft-spike.md.
 package cometbft
 
 import (
