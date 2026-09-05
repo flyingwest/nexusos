@@ -311,3 +311,19 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 **Rationale**: Orchestration stays secondary to the distributed OS. Working create+reconcile+scale beats perfect bin-packing. Deterministic scheduling avoids leader election.
 
 **Status**: Accepted
+
+---
+
+## 2026-09-05 – Workload rolling updates
+
+**Decision**: Support `RollingUpdate` (default) and `Recreate` on Workloads:
+
+1. **RollingUpdate**: on image/key-spec change, each reconciler pass updates at most `max_unavailable` outdated replica placements (default **1**, lowest index first). Scale-up still creates all missing replicas in one pass. Local runtime restarts only when a placement’s ledger `image_digest` diverges from the running container.
+2. **Recreate**: update all replica placement digests in one pass (nuke-and-restart).
+3. **API/CLI**: `PUT /v1/workloads/{id}`; `nexusctl workloads update`; `--strategy` / `--max-unavailable` on create/update.
+4. **Not in this PR**: maxSurge, readiness probes on the ledger, CRIU, UI, affinities.
+
+**Rationale**: Prefer a simple correct one-at-a-time roll over Kubernetes parity. Deterministic lowest-index budgeting keeps multi-coordinator CometBFT submits idempotent without a roll leader.
+
+**Status**: Accepted
+

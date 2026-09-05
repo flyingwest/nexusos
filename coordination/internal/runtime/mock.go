@@ -83,11 +83,19 @@ func (m *MockRuntime) Start(ctx context.Context, opts StartOptions) (*ContainerI
 	}
 
 	now := time.Now().UTC()
+	digest := img.Digest
+	if opts.ImageDigest != "" {
+		digest = opts.ImageDigest
+	}
+	ref := opts.ImageRef
+	if ref == "" {
+		ref = digest
+	}
 	c := &ContainerInfo{
 		ID:          id,
 		Name:        name,
-		ImageRef:    opts.ImageRef,
-		ImageDigest: img.Digest,
+		ImageRef:    ref,
+		ImageDigest: digest,
 		State:       "running",
 		CreatedAt:   now,
 		Labels:      opts.Labels,

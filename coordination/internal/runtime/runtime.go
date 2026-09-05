@@ -57,6 +57,7 @@ type StartOptions struct {
 	ID          string // optional predetermined id (workload replicas)
 	Name        string
 	ImageRef    string // prefer digest form: @sha256:...
+	ImageDigest string // optional; when set, recorded on the running container (ledger alignment)
 	Labels      map[string]string
 	Env         []string
 	Command     []string
