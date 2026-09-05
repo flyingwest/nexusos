@@ -101,6 +101,7 @@ func New(opts Options) *Server {
 	mux.HandleFunc("POST /v1/peers", s.handleAddPeer)
 	mux.HandleFunc("POST /v1/peers/remove", s.handleRemovePeer)
 	mux.HandleFunc("POST /v1/cluster/pair", s.handleClusterPair)
+	mux.HandleFunc("POST /v1/cluster/leave", s.handleClusterLeave)
 	mux.HandleFunc("POST /v1/cluster/sync", s.handleClusterSync)
 	mux.HandleFunc("GET /v1/chain", s.handleChain)
 	mux.HandleFunc("POST /v1/net/hello", s.handleNetHello)
@@ -418,8 +419,14 @@ func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	// LeaveMember is modeled; DiffValidatorUpdates still refuses empty sets /
-	// non-validator destructive replaces. Prefer expand-only ops in production.
+	// Evict/leave via LeaveMember consensus tx (API token auth). Join-token is
+	// for pair/join only — leave is signed by this node's member/validator key.
+	if s.ledger != nil {
+		if err := ledger.CanLeaveMember(s.ledger.Snapshot().Members, id); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
 	if s.submitMembership(w, r, ledger.MsgLeaveMember, ledger.MemberPayload{NodeID: id}) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "removed", "node_id": id})
 		return
@@ -429,6 +436,33 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed", "node_id": id})
+}
+
+// handleClusterLeave submits LeaveMember for this node's identity (self-leave).
+// Requires API token. Refuses if this node is the last usable validator.
+func (s *Server) handleClusterLeave(w http.ResponseWriter, r *http.Request) {
+	if s.kp == nil {
+		writeError(w, http.StatusServiceUnavailable, "node identity not configured")
+		return
+	}
+	id := s.kp.NodeID
+	if s.ledger != nil {
+		if err := ledger.CanLeaveMember(s.ledger.Snapshot().Members, id); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
+	if s.submitMembership(w, r, ledger.MsgLeaveMember, ledger.MemberPayload{NodeID: id}) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "left", "node_id": id})
+		return
+	}
+	if s.members != nil {
+		if err := s.members.Remove(id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "left", "node_id": id})
 }
 
 // submitMembership tries TxSubmitter then hash-chain consensus. Returns true if

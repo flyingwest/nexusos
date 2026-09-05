@@ -289,7 +289,7 @@ func TestFinalizeBlockValidatorUpdatesFromMembershipTx(t *testing.T) {
 		t.Fatalf("ledger members=%d", len(led.Snapshot().Members))
 	}
 
-	// LeaveMember(B) → power 0.
+	// LeaveMember(B) → power 0 + member tombstone in AppHash fields.
 	leave, err := ledger.NewTx(kpA, ledger.MsgLeaveMember, ledger.MemberPayload{NodeID: kpB.NodeID}, now.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
@@ -298,12 +298,66 @@ func TestFinalizeBlockValidatorUpdatesFromMembershipTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hashBefore := app.AppHashHex()
 	fb, err = app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 3, Txs: [][]byte{leaveBz}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(fb.TxResults) != 1 || fb.TxResults[0].Code != CodeOK {
+		t.Fatalf("LeaveMember result: %+v", fb.TxResults)
+	}
 	if len(fb.ValidatorUpdates) != 1 || fb.ValidatorUpdates[0].Power != 0 {
 		t.Fatalf("want remove B: %+v", fb.ValidatorUpdates)
+	}
+	_, err = app.Commit(ctx, &abcitypes.RequestCommit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := led.Snapshot()
+	if _, ok := st.Members[kpB.NodeID]; ok {
+		t.Fatal("B still in ledger Members")
+	}
+	if _, ok := st.Tombstones[ledger.MemberTomb(kpB.NodeID)]; !ok {
+		t.Fatal("member tombstone missing after leave")
+	}
+	if app.AppHashHex() == hashBefore || app.AppHashHex() == "" {
+		t.Fatalf("AppHash should change on leave; before=%s after=%s", hashBefore, app.AppHashHex())
+	}
+	if members.Contains(kpB.NodeID) {
+		t.Fatal("membership cache still has B")
+	}
+
+	// Leaving the last validator must fail CheckTx / FinalizeBlock apply.
+	last, err := ledger.NewTx(kpA, ledger.MsgLeaveMember, ledger.MemberPayload{NodeID: kpA.NodeID}, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastBz, err := EncodeTx(last)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ck, err := app.CheckTx(ctx, &abcitypes.RequestCheckTx{Tx: lastBz})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ck.Code == CodeOK {
+		t.Fatal("CheckTx should refuse leaving last validator")
+	}
+	fb, err = app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 4, Txs: [][]byte{lastBz}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fb.TxResults[0].Code == CodeOK {
+		t.Fatal("FinalizeBlock should refuse leaving last validator")
+	}
+	if len(fb.ValidatorUpdates) != 0 {
+		t.Fatalf("no validator updates on refused leave: %+v", fb.ValidatorUpdates)
+	}
+	if _, ok := led.Snapshot().Members[kpA.NodeID]; !ok {
+		// Commit not called / apply failed — A must remain from prior commit.
+	}
+	if !members.Contains(kpA.NodeID) {
+		t.Fatal("A must remain a member")
 	}
 }
 

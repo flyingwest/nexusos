@@ -4,6 +4,7 @@
 # Authoritative consensus proofs (always run):
 #   TestTwoNodeConsensusAppliesTxOnPeer — tx on A applied on B via ABCI
 #   TestTwoNodeJoinMemberAfterStart — JoinMember after start (no pair-before-start)
+#   TestTwoNodeLeaveMember — LeaveMember removes peer from validators + ledger
 #
 # Coordinator harness (updated flow):
 #   1) Start A with --cometbft; copy genesis; start B with --cometbft-peers.
@@ -69,7 +70,7 @@ mkdir -p bin
 
 echo "==> Go two-node consensus e2e (authoritative)"
 ( cd coordination && go test ./internal/consensus/cometbft/ \
-  -run 'TestTwoNodeConsensusAppliesTxOnPeer|TestTwoNodeJoinMemberAfterStart' \
+  -run 'TestTwoNodeConsensusAppliesTxOnPeer|TestTwoNodeJoinMemberAfterStart|TestTwoNodeLeaveMember' \
   -count=1 -timeout 5m )
 
 rm -rf "$DIR_A" "$DIR_B"
@@ -208,6 +209,42 @@ if [[ "$OK" != "1" ]]; then
   exit 1
 fi
 
+echo "==> Evict B via LeaveMember (nexusctl members rm)"
+NODE_B="$(ctl "$API_B" node | python3 -c "import json,sys; print(json.load(sys.stdin)[\"node_id\"])")"
+ctl "$API_A" members rm "$NODE_B"
+
+echo "==> Waiting for B removed from ledger + member tombstone"
+for i in $(seq 1 60); do
+  if python3 - "$NODE_B" "$DIR_A" "$DIR_B" <<'PY'
+import json, pathlib, sys
+node_b, dir_a, dir_b = sys.argv[1], sys.argv[2], sys.argv[3]
+for label, p in [("A", dir_a), ("B", dir_b)]:
+    led = json.loads(pathlib.Path(p + "/ledger.json").read_text())
+    members = led.get("members") or {}
+    tombs = led.get("tombstones") or {}
+    if node_b in members:
+        raise SystemExit(f"{label} still has B in members")
+    if f"member:{node_b}" not in tombs:
+        raise SystemExit(f"{label} missing member tombstone")
+print("    leave OK (B gone + tombstoned)")
+PY
+  then
+    break
+  fi
+  if [[ "$i" -eq 60 ]]; then
+    echo "FAIL: leave did not converge"
+    tail -40 "$LOG_A" || true
+    exit 1
+  fi
+  sleep 0.25
+done
+
+echo "==> Refuse leaving last validator (expect conflict)"
+if ctl "$API_A" leave >/tmp/nexus-leave-last.out 2>&1; then
+  echo "FAIL: last leave should have been refused"; cat /tmp/nexus-leave-last.out; exit 1
+fi
+echo "    last-validator refuse OK"
+
 echo "==> Heights (ABCI meta)"
 python3 - <<PY
 import json, pathlib
@@ -216,4 +253,4 @@ for label, p in [("A", "$DIR_A/cometbft/abci-meta.json"), ("B", "$DIR_B/cometbft
     print(label, json.loads(path.read_text()) if path.exists() else "missing")
 PY
 
-echo "==> e2e-cometbft-two-node: PASS (Go tests + coordinator harness, pair-after-start)"
+echo "==> e2e-cometbft-two-node: PASS (Go tests + coordinator harness, pair-after-start + leave)"

@@ -1,6 +1,6 @@
 # CometBFT embed (feature-flagged)
 
-**Status**: **default** consensus engine — in-process node + mempool Submit + membership txs + dynamic validators + two-node e2e  
+**Status**: **default** consensus engine — in-process node + mempool Submit + membership txs + dynamic validators + safe leave/eviction + two-node e2e  
 **Date**: 2026-09-05 (updated)  
 **Module**: `github.com/cometbft/cometbft v0.38.26` (ABCI 2.0 line; Go 1.22+). `coordination/go.mod` uses `go 1.22.11` (+ toolchain).
 
@@ -64,7 +64,7 @@ CometBFT v0.38 has **no separate EndBlock RPC**; apps return `ResponseFinalizeBl
 |-------|----------|
 | InitChain | Track genesis validators in app `valSet` |
 | `JoinMember` tx (after HTTP join-token pair) | FinalizeBlock diffs ledger Members → add/update power |
-| `LeaveMember` tx | Diff → power `0` removal (never leave zero validators; empty desired preserves genesis) |
+| `LeaveMember` tx | Diff → power `0` removal; ApplyTx refuses last usable validator; stamps `member:<id>` tombstone |
 | Empty ledger Members / no usable keys | **No updates** — preserve genesis FilePV (single-node safe) |
 | Non-validator peer (local FilePV not yet in active set) | Only **pure expansions** allowed (desired ⊇ current). |
 | HTTP `members.json` alone | **Does not** drive ValidatorUpdates (prevents NextValidatorsHash divergence) |
@@ -81,9 +81,21 @@ Tracked `valSet` is persisted in `abci-meta.json` so restarts do not re-flood up
 
 `FinalizeBlock` must compute identical `ValidatorUpdates` on every peer at a given height. **Membership join/leave now flow through consensus txs** (`JoinMember` / `LeaveMember`) so ledger `Members` (and thus validator diffs) are ordered with the chain. HTTP pair still verifies the join-token, then submits `JoinMember` via mempool. Local `members.json` is a cache synced on commit.
 
-**Leave judgment**: `LeaveMember` is modeled, but `DiffValidatorUpdates` keeps expand-only / non-empty safety (empty desired → preserve genesis; non-validator locals cannot replace the active set). Prefer expand-only ops in production until a safer leave/eviction story exists.
+### Safe leave / eviction
 
-Lab/e2e: start CometBFT (shared genesis + peers), **then** pair — pair-before-start is no longer required.
+| Path | Auth | Behavior |
+|------|------|----------|
+| `DELETE /v1/members/{id}` / `nexusctl members rm` | **API token** (Bearer). Tx signed by this node's identity (must be member or active validator) | Evict peer: `LeaveMember` → power `0` + `member:<id>` tombstone |
+| `POST /v1/cluster/leave` / `nexusctl leave` | **API token** | Self-leave for local `node_id` |
+| Join-token | **Not used for leave** | Join-token remains pair/join only |
+
+**Last validator**: `ledger.ApplyTx` / `CanLeaveMember` refuse leaving when `MembershipPower` would become empty (`409 Conflict` on HTTP). Clear error: `cannot leave the last validator`.
+
+**AppHash**: leave removes the member from `Members` and stamps `Tombstones["member:<id>"]`, so consensus digest changes even though the entry is gone.
+
+`DiffValidatorUpdates` still: empty desired → preserve genesis; non-validator locals expand-only; never emit a zero-alive set. **Leaving node**: when local pubkey is absent from desired, still emit power-0 self-removal if every other current validator remains (keeps FinalizeBlock deterministic across peers).
+
+Lab/e2e: start CometBFT (shared genesis + peers), **then** pair — pair-before-start is no longer required. Leave e2e: `TestTwoNodeLeaveMember` + harness leave step in `scripts/e2e-cometbft-two-node.sh`.
 
 ## Validators / peers vs NexusOS membership
 
@@ -148,7 +160,7 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 - **Pre-existing FilePV ≠ identity**: dynamic sync skipped until re-seed; documented above.
 - **Shared genesis required** for multi-node: B must copy A's `genesis.json` before start (harness does this). No automatic genesis gossip yet.
 - **HTTP `--peers` ≠ CometBFT P2P**: still separate planes; heartbeats remain on HTTP sync.
-- **AppHash**: SHA-256 of consensus fields only (`images` / `containers` / `migrations` / `tombstones`). **Nodes/heartbeats are excluded** so HTTP sync cannot diverge CometBFT peers. Not a Merkle tree — fine for permissioned ops, not for light clients.
+- **AppHash**: SHA-256 of consensus fields only (`images` / `containers` / `migrations` / `members` / `tombstones`). Member leave stamps `member:<id>` tombstones. **Nodes/heartbeats are excluded** so HTTP sync cannot diverge CometBFT peers. Not a Merkle tree — fine for permissioned ops, not for light clients.
 - **Dependency weight**: Full `node` import pulls DB/P2P/RPC stacks; scoped behind the engine flag at runtime.
 - **Version pin**: v0.38.x matches Go 1.22+; v1.x wants newer Go — revisit when the module bumps past 1.22.
 
@@ -161,5 +173,6 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 - [x] Identity-seeded FilePV for key correlation; safe single-node when membership empty
 - [x] Two-node Go e2e: tx on A applied on B via consensus (`TestTwoNodeConsensusAppliesTxOnPeer`)
 - [x] Membership as consensus tx + validator updates (`TestFinalizeBlockValidatorUpdatesFromMembershipTx`, `TestTwoNodeJoinMemberAfterStart`)
+- [x] Safe leave/eviction (`LeaveMember` last-validator refuse + member tombstone + `TestTwoNodeLeaveMember`)
 - [x] Scripted harness `scripts/e2e-cometbft-two-node.sh` (pair-after-start) + run docs
 - [x] Default engine is `cometbft`; hash-chain selectable + deprecation warning
