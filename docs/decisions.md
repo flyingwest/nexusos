@@ -216,3 +216,13 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 
 **Status**: Accepted
 
+
+---
+
+## 2026-09-05 – CometBFT dynamic validators + two-node e2e
+
+**Decision**: Drive CometBFT validator-set changes from NexusOS membership via **ABCI 2.0 `FinalizeBlock.ValidatorUpdates`** (v0.38 has no separate EndBlock). Seed new FilePV keys from the NexusOS Ed25519 identity so membership pubkey == voting pubkey. Preserve single-node safety: empty/unkeyed membership emits no updates; refuse sync that would drop the local signing key when it is absent from the desired set. Add `--cometbft-peers` and a two-node harness (shared genesis copy + Go test `TestTwoNodeConsensusAppliesTxOnPeer`). Default engine remains **hashchain**.
+
+**Rationale**: Membership join/pair/leave is the permissioned source of truth; FinalizerBlock is the ABCI 2.0 place to propose validator diffs. Identity-seeded FilePV closes the keyring gap for new data dirs without breaking existing random FilePV single-node clusters. Multi-node still requires an explicit shared genesis (honest operational step) rather than inventing genesis gossip in this increment.
+
+**Status**: Accepted

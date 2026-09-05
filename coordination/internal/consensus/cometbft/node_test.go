@@ -48,12 +48,13 @@ func TestNodeSubmitRegisterImageViaMempool(t *testing.T) {
 	app := NewApp(led, members)
 	home := filepath.Join(dir, "cometbft")
 	node, err := StartNode(app, NodeOptions{
-		HomeDir:   home,
-		ChainID:   "nexusos-test",
-		RPCListen: freeTCPAddr(t),
-		P2PListen: freeTCPAddr(t),
-		Moniker:   "test",
-		Members:   members,
+		HomeDir:      home,
+		ChainID:      "nexusos-test",
+		RPCListen:    freeTCPAddr(t),
+		P2PListen:    freeTCPAddr(t),
+		Moniker:      "test",
+		Members:      members,
+		IdentityPriv: kp.PrivateKey,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)

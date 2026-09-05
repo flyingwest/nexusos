@@ -8,11 +8,12 @@ import (
 	"path/filepath"
 )
 
-// abciMeta persists last committed height and app hash so Info matches
-// CometBFT's store across restarts (avoids block replay onto an already-applied ledger).
+// abciMeta persists last committed height, app hash, and tracked validator set
+// so Info / FinalizeBlock diffs stay consistent across restarts.
 type abciMeta struct {
-	Height  int64  `json:"height"`
-	AppHash string `json:"app_hash_hex"`
+	Height     int64            `json:"height"`
+	AppHash    string           `json:"app_hash_hex"`
+	Validators map[string]int64 `json:"validators,omitempty"` // pubkey hex → power
 }
 
 func (a *App) metaPath() string {
@@ -61,6 +62,12 @@ func (a *App) loadMetaLocked() error {
 		}
 		a.appHash = h
 	}
+	if m.Validators != nil {
+		a.valSet = make(map[string]int64, len(m.Validators))
+		for k, v := range m.Validators {
+			a.valSet[k] = v
+		}
+	}
 	return nil
 }
 
@@ -69,9 +76,14 @@ func (a *App) saveMetaLocked() error {
 	if path == "" {
 		return nil
 	}
+	vals := make(map[string]int64, len(a.valSet))
+	for k, v := range a.valSet {
+		vals[k] = v
+	}
 	m := abciMeta{
-		Height:  a.height,
-		AppHash: hex.EncodeToString(a.appHash),
+		Height:     a.height,
+		AppHash:    hex.EncodeToString(a.appHash),
+		Validators: vals,
 	}
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {

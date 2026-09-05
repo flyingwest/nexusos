@@ -2,12 +2,14 @@ package cometbft
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	cfg "github.com/cometbft/cometbft/config"
+	cmted25519 "github.com/cometbft/cometbft/crypto/ed25519"
 	cmtlog "github.com/cometbft/cometbft/libs/log"
 	nm "github.com/cometbft/cometbft/node"
 	"github.com/cometbft/cometbft/p2p"
@@ -38,6 +40,13 @@ type NodeOptions struct {
 	P2PListen string // e.g. tcp://127.0.0.1:26656
 	Moniker   string
 	Members   *membership.Store // optional; writes membership validator snapshot
+	// PersistentPeers is a CometBFT persistent_peers string
+	// (comma-separated id@host:port). Used for multi-node e2e.
+	PersistentPeers string
+	// IdentityPriv is the NexusOS Ed25519 private key (64-byte Go format).
+	// When set and no FilePV key exists yet, consensus FilePV is seeded from it
+	// so membership PublicKey == voting pubkey.
+	IdentityPriv ed25519.PrivateKey
 }
 
 // Node wraps an in-process CometBFT consensus node bound to App.
@@ -47,6 +56,7 @@ type Node struct {
 	node   *nm.Node
 	client *rpclocal.Local
 	logger cmtlog.Logger
+	nodeID string
 }
 
 // StartNode creates config/datadir under opts.HomeDir, writes genesis from the
@@ -92,14 +102,23 @@ func StartNode(app *App, opts NodeOptions) (*Node, error) {
 	cmtCfg.P2P.AllowDuplicateIP = true
 	cmtCfg.P2P.PexReactor = false
 	cmtCfg.P2P.Seeds = ""
-	cmtCfg.P2P.PersistentPeers = ""
+	cmtCfg.P2P.PersistentPeers = opts.PersistentPeers
 	cmtCfg.Instrumentation.Prometheus = false
 	// Fast local blocks for --dev / single-node smoke.
 	cmtCfg.Consensus.CreateEmptyBlocksInterval = 1 * time.Second
 	cmtCfg.Consensus.TimeoutCommit = 500 * time.Millisecond
 	cmtCfg.RPC.TimeoutBroadcastTxCommit = 10 * time.Second
 
-	pv := privval.LoadOrGenFilePV(cmtCfg.PrivValidatorKeyFile(), cmtCfg.PrivValidatorStateFile())
+	pv, err := loadOrGenFilePV(cmtCfg.PrivValidatorKeyFile(), cmtCfg.PrivValidatorStateFile(), opts.IdentityPriv)
+	if err != nil {
+		return nil, err
+	}
+	pub, err := pv.GetPubKey()
+	if err != nil {
+		return nil, fmt.Errorf("filepv pubkey: %w", err)
+	}
+	app.SetLocalConsensusPubKey(pub.Bytes())
+
 	if err := ensureGenesis(cmtCfg, pv, opts.ChainID); err != nil {
 		return nil, err
 	}
@@ -136,6 +155,8 @@ func StartNode(app *App, opts NodeOptions) (*Node, error) {
 		_ = n.Stop()
 		return nil, fmt.Errorf("membership validator snapshot: %w", err)
 	}
+	nid := string(nodeKey.ID())
+	_ = os.WriteFile(filepath.Join(home, "p2p-node-id.txt"), []byte(nid+"\n"), 0o644)
 
 	return &Node{
 		App:    app,
@@ -143,7 +164,27 @@ func StartNode(app *App, opts NodeOptions) (*Node, error) {
 		node:   n,
 		client: client,
 		logger: logger,
+		nodeID: nid,
 	}, nil
+}
+
+// loadOrGenFilePV loads an existing FilePV, or creates one. When creating and
+// identityPriv is a 64-byte Go Ed25519 key, seed FilePV from it so consensus
+// pubkey == NexusOS membership PublicKey.
+func loadOrGenFilePV(keyFile, stateFile string, identityPriv ed25519.PrivateKey) (*privval.FilePV, error) {
+	if _, err := os.Stat(keyFile); err == nil {
+		return privval.LoadFilePV(keyFile, stateFile), nil
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if len(identityPriv) == ed25519.PrivateKeySize {
+		pv := privval.NewFilePV(cmted25519.PrivKey(identityPriv), keyFile, stateFile)
+		pv.Save()
+		return pv, nil
+	}
+	pv := privval.GenFilePV(keyFile, stateFile)
+	pv.Save()
+	return pv, nil
 }
 
 func ensureGenesis(cmtCfg *cfg.Config, pv *privval.FilePV, chainID string) error {
@@ -211,6 +252,23 @@ func (n *Node) P2PAddress() string {
 		return ""
 	}
 	return n.node.Config().P2P.ListenAddress
+}
+
+// NodeID returns the CometBFT P2P node ID (hex) for persistent_peers.
+func (n *Node) NodeID() string {
+	if n == nil {
+		return ""
+	}
+	return n.nodeID
+}
+
+// PeerListenHostPort strips the tcp:// scheme from P2PListen for peer strings.
+func PeerListenHostPort(p2pListen string) string {
+	const prefix = "tcp://"
+	if len(p2pListen) > len(prefix) && p2pListen[:len(prefix)] == prefix {
+		return p2pListen[len(prefix):]
+	}
+	return p2pListen
 }
 
 // Stop shuts down the CometBFT node and waits for exit.

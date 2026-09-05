@@ -2,6 +2,7 @@ package cometbft
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -191,5 +192,126 @@ func TestCheckTxRejectsNonMember(t *testing.T) {
 	}
 	if resp.Code != CodeNotMember {
 		t.Fatalf("expected not-member, got %d (%s)", resp.Code, resp.Log)
+	}
+}
+
+func TestFinalizeBlockValidatorUpdatesFromMembership(t *testing.T) {
+	dir := t.TempDir()
+	led, err := ledger.NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members, err := membership.NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kpA, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kpB, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aHex := kpA.PublicJSON().PublicKey
+	bHex := kpB.PublicJSON().PublicKey
+
+	if err := members.Upsert(membership.Member{NodeID: kpA.NodeID, PublicKey: aHex}); err != nil {
+		t.Fatal(err)
+	}
+
+	app := NewApp(led, members)
+	app.SetLocalConsensusPubKey(kpA.PublicKey)
+	ctx := context.Background()
+
+	// InitChain with A as genesis validator.
+	_, err = app.InitChain(ctx, &abcitypes.RequestInitChain{
+		Validators: []abcitypes.ValidatorUpdate{
+			abcitypes.Ed25519ValidatorUpdate(kpA.PublicKey, DefaultValidatorPower),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := app.ValidatorSetSnapshot(); len(got) != 1 || got[aHex] != DefaultValidatorPower {
+		t.Fatalf("after init: %+v", got)
+	}
+
+	// No membership change → no updates.
+	fb, err := app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fb.ValidatorUpdates) != 0 {
+		t.Fatalf("expected no updates, got %d", len(fb.ValidatorUpdates))
+	}
+
+	// Pair B → expect add B.
+	if err := members.Upsert(membership.Member{NodeID: kpB.NodeID, PublicKey: bHex}); err != nil {
+		t.Fatal(err)
+	}
+	fb, err = app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fb.ValidatorUpdates) != 1 || fb.ValidatorUpdates[0].Power != DefaultValidatorPower {
+		t.Fatalf("want add B: %+v", fb.ValidatorUpdates)
+	}
+	gotB := hex.EncodeToString(fb.ValidatorUpdates[0].PubKey.GetEd25519())
+	if gotB != bHex {
+		t.Fatalf("got %s want %s", gotB, bHex)
+	}
+	snap := app.ValidatorSetSnapshot()
+	if len(snap) != 2 {
+		t.Fatalf("snap=%+v", snap)
+	}
+
+	// Leave B → power 0.
+	if err := members.Remove(kpB.NodeID); err != nil {
+		t.Fatal(err)
+	}
+	fb, err = app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fb.ValidatorUpdates) != 1 || fb.ValidatorUpdates[0].Power != 0 {
+		t.Fatalf("want remove B: %+v", fb.ValidatorUpdates)
+	}
+}
+
+func TestFinalizeBlockNoValidatorUpdateWhenMembershipEmpty(t *testing.T) {
+	dir := t.TempDir()
+	led, err := ledger.NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members, err := membership.NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kp, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp(led, members)
+	app.SetLocalConsensusPubKey(kp.PublicKey)
+	ctx := context.Background()
+	_, err = app.InitChain(ctx, &abcitypes.RequestInitChain{
+		Validators: []abcitypes.ValidatorUpdate{
+			abcitypes.Ed25519ValidatorUpdate(kp.PublicKey, DefaultValidatorPower),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, err := app.FinalizeBlock(ctx, &abcitypes.RequestFinalizeBlock{Height: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fb.ValidatorUpdates) != 0 {
+		t.Fatalf("empty membership must preserve genesis FilePV; got %+v", fb.ValidatorUpdates)
+	}
+	if len(app.ValidatorSetSnapshot()) != 1 {
+		t.Fatal("genesis validator should remain tracked")
 	}
 }

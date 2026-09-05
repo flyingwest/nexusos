@@ -1,7 +1,7 @@
 # CometBFT embed (feature-flagged)
 
-**Status**: in-process node + mempool Submit / not default  
-**Date**: 2026-09-04 (updated)  
+**Status**: in-process node + mempool Submit + dynamic validators + two-node e2e harness / not default  
+**Date**: 2026-09-05 (updated)  
 **Module**: `github.com/cometbft/cometbft v0.38.26` (ABCI 2.0 line; Go 1.22+). `coordination/go.mod` uses `go 1.22.11` (+ toolchain).
 
 This document describes the feature-flagged path that runs **CometBFT as the consensus engine** for **image-integrity** and **placement** transactions, while keeping the existing permissioned hash-chain as the **default**.
@@ -21,7 +21,8 @@ This document describes the feature-flagged path that runs **CometBFT as the con
 ┌──────────────────────────────────────────┐
 │ coordinator (Go)                         │
 │  ledger.Store  membership.Store          │
-│  cometbft.App  (ABCI)                    │
+│  cometbft.App  (ABCI + FinalizeBlock     │
+│                 ValidatorUpdates)        │
 │  cometbft.Node (in-process consensus)    │── local BroadcastTxCommit
 │  httpapi → TxSubmitter (strict)          │
 │  consensus.Engine (hash-chain; default)  │
@@ -40,8 +41,8 @@ This document describes the feature-flagged path that runs **CometBFT as the con
 Wire encoding: **JSON of `ledger.Tx`** (`EncodeTx` / `DecodeTx`). Signatures remain Ed25519 over the existing `nexusos-tx-v1` domain string.
 
 `CheckTx`: decode → `ledger.VerifyTx` → membership check → dry-run `ApplyTx` on a snapshot.  
-`FinalizeBlock`: same validation; stage successful txs; compute `AppHash` = SHA-256 of marshaled working state.  
-`Commit`: `Store.ApplyTxs(pending)` + persist ABCI height/app-hash meta under `data-dir/cometbft/abci-meta.json` so handshake does not replay onto an already-applied ledger.
+`FinalizeBlock`: same validation; stage successful txs; compute `AppHash` = SHA-256 of consensus fields only (images/containers/migrations/tombstones — not nodes); **emit `ValidatorUpdates`** (ABCI 2.0 EndBlock equivalent).  
+`Commit`: `Store.ApplyTxs(pending)` + persist ABCI height/app-hash/validator-set meta under `data-dir/cometbft/abci-meta.json`.
 
 ## Operator Submit path (strict)
 
@@ -53,19 +54,40 @@ When `--consensus-engine=cometbft` (or `--cometbft`):
 
 Hash-chain mode is unchanged: still uses `consensus.Engine.Submit` with local upsert fallback if quorum fails.
 
+## Dynamic validators (membership → FinalizeBlock)
+
+CometBFT v0.38 has **no separate EndBlock RPC**; apps return `ResponseFinalizeBlock.ValidatorUpdates` (applied at height+2).
+
+| Event | Behavior |
+|-------|----------|
+| InitChain | Track genesis validators in app `valSet` |
+| Membership join/pair (member with 32-byte Ed25519 `public_key`) | Next FinalizeBlock diffs → add/update power |
+| Membership leave | Diff → power `0` removal (never leave zero validators) |
+| Empty membership / no usable keys | **No updates** — preserve genesis FilePV (single-node safe) |
+| Non-validator peer (local FilePV not yet in active set) | Only **pure expansions** allowed (desired ⊇ current). Prevents a node whose membership is still `{self}` from proposing to replace genesis before pair. |
+
+### Power / pubkey mapping
+
+- **Power**: every usable member gets `DefaultValidatorPower` (10) — equal weight, permissioned.
+- **PubKey**: member `public_key` hex must be exactly 32 bytes Ed25519. NexusOS `NodeID` is hex(pubkey), so they normally match.
+- **Keyring correlation**: on first start, if no FilePV exists, consensus FilePV is **seeded from the NexusOS identity private key** so local membership pubkey == voting pubkey. Pre-existing random FilePV keys that do **not** match identity: membership sync is **skipped** while the local FilePV pubkey is absent from the desired set (avoids replacing the sole signing key and stalling). Operators can delete `<data-dir>/cometbft/` once to re-seed from identity (destroys that node's CometBFT chain state).
+
+Tracked `valSet` is persisted in `abci-meta.json` so restarts do not re-flood updates.
+
+### Determinism note (multi-node)
+
+`FinalizeBlock` must compute identical `ValidatorUpdates` on every peer at a given height. Membership is still an HTTP-local store, so **pairing mid-catch-up** can diverge (`NextValidatorsHash` mismatch). Lab/e2e pattern: pair (or pre-seed `members.json`) **before** starting CometBFT on both nodes so membership is identical for all heights. Membership-as-consensus-tx remains deferred.
+
 ## Validators / peers vs NexusOS membership
 
 | Concept | NexusOS today | CometBFT (this PR) |
 |---------|---------------|---------------------|
 | Who may sign ledger txs | `membership.Store` (+ join-token pairing) | Same: ABCI rejects non-members when the set is non-empty |
-| Who votes / proposes | Hash-chain: member IDs as validators, `ceil(2n/3)` | **Genesis** = local CometBFT FilePV (single-node). Membership → suggested validator snapshot written to `data-dir/cometbft/validators-from-membership.json` |
-| Dynamic validator set | N/A | **Deferred**: `ValidatorUpdatesFromMembership` builds ABCI updates for a future EndBlock path; pairing does **not** yet resize the CometBFT set |
-| Peer discovery | `--peers`, pair HTTP, advertise URL | CometBFT P2P ports are separate; multi-validator P2P mesh is **deferred** |
+| Who votes / proposes | Hash-chain: member IDs as validators, `ceil(2n/3)` | Genesis = local FilePV (identity-seeded when new). Dynamic set via FinalizeBlock from membership |
+| Peer discovery | `--peers`, pair HTTP, advertise URL | CometBFT: `--cometbft-peers` (`id@host:port`,…). Multi-node needs **shared genesis** (copy A's `config/genesis.json` to B) |
 | Operator API auth | API token + TLS | Unchanged |
 
 **Join-token** does not become a CometBFT secret. It continues to authorize **membership** changes.
-
-**Key mapping limit**: NexusOS Ed25519 node identity keys and CometBFT consensus FilePV keys are **separate keyrings**. Suggested validators map member `public_key` hex → CometBFT Ed25519 pubkey when present; they are not automatically installed as voting power.
 
 ## How to enable
 
@@ -87,6 +109,15 @@ CometBFT (single-node in-process):
 # optional: --cometbft-rpc tcp://127.0.0.1:26657 --cometbft-p2p tcp://127.0.0.1:26656
 ```
 
+Two-node CometBFT (mock e2e harness):
+
+```bash
+./scripts/e2e-cometbft-two-node.sh
+# Go consensus proof (no HTTP coordinator):
+cd coordination && go test ./internal/consensus/cometbft/ \
+  -run TestTwoNodeConsensusAppliesTxOnPeer -count=1 -timeout 3m
+```
+
 ABCI socket harness (sidecar experiments):
 
 ```bash
@@ -97,19 +128,20 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 ## Migration plan (hash-chain → CometBFT)
 
 1. ~~**Spike**: ABCI app + flag + docs~~ ✅
-2. **This PR**: In-process node + mempool Submit (strict) + membership→validator scaffolding; single-node smoke test.
-3. **Dynamic validators**: Apply `ValidatorUpdatesFromMembership` in EndBlock / InitChain; correlate identity ↔ consensus keys.
-4. **Multi-validator P2P**: Seed/persistent peers from membership advertise URLs; two-node QEMU e2e under `--cometbft`.
+2. ~~**In-process node + mempool Submit**~~ ✅
+3. ~~**Dynamic validators** via FinalizeBlock from membership~~ ✅
+4. ~~**Multi-node harness** (shared genesis + `--cometbft-peers` + Go e2e)~~ ✅ (scripted coordinator e2e may be flaky under load; Go test is the reliable proof)
 5. **Dual-run / shadow** (optional): Compare app hashes vs hash-chain heights in a lab cluster.
-6. **Cutover**: Flip default `--consensus-engine` only after multi-node e2e and security review. **Do not remove** `internal/consensus` until cutover is proven.
+6. **Cutover**: Flip default `--consensus-engine` only after security review. **Do not remove** `internal/consensus` until cutover is proven.
 7. **Freeze hash-chain** as fallback / `--consensus-engine=hashchain` for one release.
 
 ## Known risks / deferred
 
-- **Single-node only for voting**: Genesis validator is the local FilePV; membership suggestions are advisory until EndBlock updates ship.
-- **Multi-validator P2P**: Not wired; `--peers` still means NexusOS HTTP sync peers, not CometBFT P2P.
+- **Pre-existing FilePV ≠ identity**: dynamic sync skipped until re-seed; documented above.
+- **Shared genesis required** for multi-node: B must copy A's `genesis.json` before start (harness does this). No automatic genesis gossip yet.
+- **HTTP `--peers` ≠ CometBFT P2P**: still separate planes; heartbeats remain on HTTP sync.
+- **AppHash**: SHA-256 of consensus fields only (`images` / `containers` / `migrations` / `tombstones`). **Nodes/heartbeats are excluded** so HTTP sync cannot diverge CometBFT peers. Not a Merkle tree — fine for permissioned ops, not for light clients.
 - **Dependency weight**: Full `node` import pulls DB/P2P/RPC stacks; scoped behind the engine flag at runtime.
-- **AppHash**: State digest (SHA-256 of marshaled ledger), not a Merkle tree — fine for permissioned ops, not for light clients.
 - **Version pin**: v0.38.x matches Go 1.22+; v1.x wants newer Go — revisit when the module bumps past 1.22.
 
 ## Success criteria
@@ -117,7 +149,8 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 - [x] In-process CometBFT node under `data-dir/cometbft/` when engine is `cometbft`
 - [x] Operator Submit → mempool (`BroadcastTxCommit`); no silent local-upsert fallback
 - [x] RPC/P2P flags with safe defaults (no clash with `:8080`); clean shutdown
-- [x] Membership → validator scaffolding + honest docs on EndBlock limits
-- [x] Unit + single-node integration test (`TestNodeSubmitRegisterImageViaMempool`)
+- [x] Dynamic FinalizeBlock validator updates from membership (+ unit tests)
+- [x] Identity-seeded FilePV for key correlation; safe single-node when membership empty
+- [x] Two-node Go e2e: tx on A applied on B via consensus (`TestTwoNodeConsensusAppliesTxOnPeer`)
+- [x] Scripted harness `scripts/e2e-cometbft-two-node.sh` + run docs
 - [x] Default engine remains `hashchain`
-- [ ] Full multi-validator P2P + dynamic EndBlock validator sync — **deferred**
