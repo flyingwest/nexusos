@@ -1,0 +1,80 @@
+# Phase 3 – Native Orchestration (Workloads)
+
+Declarative **Workloads** sit on top of the distributed OS / CometBFT ledger.
+Scope is intentionally small: create → schedule → reconcile → scale. Not Kubernetes.
+
+## Objects
+
+### Workload (ledger)
+
+- `workload_id`, `owner`, `image_digest`, optional `image_ref`
+- `replicas`, coarse `resources`, `strategy` (`Recreate` only for now)
+- `status.{desired,current,available}` (current/available derived from placement containers)
+
+### Placement containers
+
+Each replica becomes a ledger `Container` with deterministic id:
+
+```text
+wl:<workload_id>:<replica_index>
+```
+
+Fields: `workload_id`, `replica_index`, `current_node`, `desired_state=Running`.
+
+## Transactions (CometBFT)
+
+| Tx | Effect |
+|----|--------|
+| `CreateWorkload` / `UpdateWorkload` | Upsert workload intent |
+| `ScaleWorkload` | Change `replicas` only |
+| `DeleteWorkload` | Remove workload + `workload:<id>` tombstone |
+| `CreateContainer` / `UpdateContainer` / `RemoveContainer` | Placement (scheduler/reconciler) |
+
+AppHash includes `workloads` (with images/containers/members/tombstones).
+
+## Scheduler
+
+**Least-loaded by ledger container count**, ties broken by sorted `node_id`.
+Only **Online** nodes (not Offline/Draining). Existing replica→node sticky if still Online.
+Deterministic so every coordinator computes the same plan.
+
+## Reconciler
+
+Runs in each coordinator (~2s):
+
+1. For each workload, ensure placement containers match the schedule; submit placement txs via CometBFT mempool.
+2. Remove orphan replica containers (deleted workload or index ≥ replicas).
+3. **Local runtime**: start containers assigned to this node; stop/remove local workload containers no longer desired here.
+
+### Failure policy
+
+If `runtime.Start` fails, desired placement **stays on the ledger**; the loop retries next tick.
+No automatic reschedule away from a healthy Online node in this increment.
+
+## API / CLI
+
+```text
+POST   /v1/workloads
+GET    /v1/workloads
+GET    /v1/workloads/{id}
+DELETE /v1/workloads/{id}
+POST   /v1/workloads/{id}/scale   {"replicas":N}
+
+nexusctl workloads create <id> --image <ref> [--digest sha256:...] --replicas N
+nexusctl workloads list|get|scale|delete ...
+```
+
+Auth: same API bearer token (+ TLS) as Phase 2.
+
+## Verify
+
+```bash
+cd coordination && go test ./...
+./scripts/e2e-workload-mock.sh
+./scripts/e2e-cometbft-two-node.sh   # unchanged two-node consensus
+```
+
+## Deferred
+
+Rolling updates, affinities/anti-affinities, bin-packing by resources, UI,
+migration/CRIU, multi-node e2e for workloads, permissionless scheduling.

@@ -31,12 +31,14 @@ type ImagePayload struct {
 
 // ContainerPayload is CreateContainer / UpdateContainer.
 type ContainerPayload struct {
-	ContainerID string            `json:"container_id"`
-	ImageDigest string            `json:"image_digest"`
-	Desired     string            `json:"desired_state"`
-	CurrentNode string            `json:"current_node"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Owner       string            `json:"owner,omitempty"`
+	ContainerID  string            `json:"container_id"`
+	ImageDigest  string            `json:"image_digest"`
+	Desired      string            `json:"desired_state"`
+	CurrentNode  string            `json:"current_node"`
+	WorkloadID   string            `json:"workload_id,omitempty"`
+	ReplicaIndex *uint32           `json:"replica_index,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	Owner        string            `json:"owner,omitempty"`
 }
 
 // RemovePayload is RemoveContainer.
@@ -50,6 +52,29 @@ type MemberPayload struct {
 	PublicKey string   `json:"public_key,omitempty"`
 	Addresses []string `json:"addresses,omitempty"`
 	Label     string   `json:"label,omitempty"`
+}
+
+// WorkloadPayload is CreateWorkload / UpdateWorkload.
+type WorkloadPayload struct {
+	WorkloadID  string            `json:"workload_id"`
+	ImageDigest string            `json:"image_digest"`
+	ImageRef    string            `json:"image_ref,omitempty"`
+	Replicas    uint32            `json:"replicas"`
+	Resources   ResourceSpec      `json:"resources,omitempty"`
+	Strategy    string            `json:"strategy,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Owner       string            `json:"owner,omitempty"`
+}
+
+// ScaleWorkloadPayload adjusts replica count only.
+type ScaleWorkloadPayload struct {
+	WorkloadID string `json:"workload_id"`
+	Replicas   uint32 `json:"replicas"`
+}
+
+// DeleteWorkloadPayload removes a workload intent.
+type DeleteWorkloadPayload struct {
+	WorkloadID string `json:"workload_id"`
 }
 
 func txSignPayload(tx Tx) string {

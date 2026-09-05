@@ -85,13 +85,14 @@ Deliverables:
 **Goal**: Declarative Workloads with scheduling and reconciliation.
 
 Deliverables:
-- Workload object (replicas, resources, constraints)
-- Simple scheduler
-- Reconciler loop (desired vs actual)
-- Scaling and basic rolling updates
-- Integration with the ledger
+- [x] Workload object (replicas, resources; constraints deferred)
+- [x] Simple scheduler (least-loaded Online members; sticky replicas)
+- [x] Reconciler loop (desired vs actual; mock + containerd Start/Stop)
+- [x] Scaling (`ScaleWorkload` + placement adjust)
+- [ ] Basic rolling updates (deferred)
+- [x] Integration with the ledger (CometBFT txs; AppHash includes workloads)
 
-**Exit criteria**: User can declare a Workload with N replicas and the system places and maintains them across the permissioned cluster.
+**Exit criteria**: User can declare a Workload with N replicas and the system places and maintains them across the permissioned cluster. ✅ Met for single-node / mock; multi-node workload e2e optional follow-up. See `docs/phase3-orchestration.md`.
 
 ---
 

@@ -19,6 +19,7 @@ import (
 	"github.com/nexusos/coordination/internal/identity"
 	"github.com/nexusos/coordination/internal/ledger"
 	"github.com/nexusos/coordination/internal/membership"
+	"github.com/nexusos/coordination/internal/orchestrate"
 	"github.com/nexusos/coordination/internal/p2p"
 	"github.com/nexusos/coordination/internal/runtime"
 	"github.com/nexusos/coordination/internal/state"
@@ -333,6 +334,19 @@ func main() {
 		}
 	}()
 	go engine.Run(ctx)
+
+	if txSubmitter != nil {
+		rec := &orchestrate.Reconciler{
+			KP:       kp,
+			Ledger:   ledgerStore,
+			Runtime:  rt,
+			Submit:   txSubmitter,
+			NodeID:   kp.NodeID,
+			Interval: 2 * time.Second,
+		}
+		go rec.Run(ctx)
+		log.Println("Workload reconciler started (Phase 3)")
+	}
 
 	log.Println("Coordinator is running. Press Ctrl+C to stop.")
 	<-ctx.Done()

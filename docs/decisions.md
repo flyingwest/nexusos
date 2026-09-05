@@ -295,3 +295,19 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 
 **Status**: Accepted
 
+
+---
+
+## 2026-09-05 – Phase 3 workloads: least-loaded + sticky reconcile
+
+**Decision**: Ship Phase 3 as **simple declarative workloads** on CometBFT:
+
+1. **Ledger txs**: `CreateWorkload` / `UpdateWorkload` / `ScaleWorkload` / `DeleteWorkload`; AppHash includes workloads; tombstone `workload:<id>`.
+2. **Placement**: deterministic container ids `wl:<id>:<replica>`; scheduler = **least-loaded by ledger container count** among Online nodes, sticky when still Online.
+3. **Reconciler**: every coordinator submits placement txs and starts/stops **local** runtime containers assigned to itself. On Start failure, keep desired on ledger and retry (no reschedule in this increment).
+4. **Strategy**: `Recreate` only; rolling updates, affinities, and resource bin-packing deferred.
+5. **Security bar unchanged**: API token + TLS; no UI / CRIU / permissionless.
+
+**Rationale**: Orchestration stays secondary to the distributed OS. Working create+reconcile+scale beats perfect bin-packing. Deterministic scheduling avoids leader election.
+
+**Status**: Accepted

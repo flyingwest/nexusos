@@ -30,6 +30,9 @@ func ApplyTx(st *State, tx Tx) error {
 	if st.Members == nil {
 		st.Members = make(map[string]MemberRecord)
 	}
+	if st.Workloads == nil {
+		st.Workloads = make(map[string]WorkloadRecord)
+	}
 
 	switch tx.Type {
 	case MsgRegisterImage, MsgVerifyImage:
@@ -67,13 +70,15 @@ func ApplyTx(st *State, tx Tx) error {
 			owner = tx.NodeID
 		}
 		st.Containers[p.ContainerID] = ContainerRecord{
-			ContainerID: p.ContainerID,
-			ImageDigest: p.ImageDigest,
-			Owner:       owner,
-			Desired:     p.Desired,
-			CurrentNode: p.CurrentNode,
-			Labels:      p.Labels,
-			UpdatedAt:   tx.Timestamp,
+			ContainerID:  p.ContainerID,
+			ImageDigest:  p.ImageDigest,
+			Owner:        owner,
+			Desired:      p.Desired,
+			CurrentNode:  p.CurrentNode,
+			WorkloadID:   p.WorkloadID,
+			ReplicaIndex: p.ReplicaIndex,
+			Labels:       p.Labels,
+			UpdatedAt:    tx.Timestamp,
 		}
 		delete(st.Tombstones, ContainerTomb(p.ContainerID))
 		return nil
@@ -146,6 +151,92 @@ func ApplyTx(st *State, tx Tx) error {
 			return fmt.Errorf("%w: cannot leave the last validator (node_id=%s)", ErrLastValidator, p.NodeID)
 		}
 		st.Tombstones[MemberTomb(p.NodeID)] = tx.Timestamp
+		return nil
+
+	case MsgCreateWorkload, MsgUpdateWorkload:
+		var p WorkloadPayload
+		if err := json.Unmarshal(tx.Payload, &p); err != nil {
+			return fmt.Errorf("workload payload: %w", err)
+		}
+		if p.WorkloadID == "" {
+			return fmt.Errorf("workload_id is required")
+		}
+		if p.ImageDigest == "" && tx.Type == MsgCreateWorkload {
+			return fmt.Errorf("image_digest is required")
+		}
+		owner := p.Owner
+		if owner == "" {
+			owner = tx.NodeID
+		}
+		existing, ok := st.Workloads[p.WorkloadID]
+		if tx.Type == MsgUpdateWorkload && !ok {
+			return fmt.Errorf("workload %s not found", p.WorkloadID)
+		}
+		rec := WorkloadRecord{
+			WorkloadID:  p.WorkloadID,
+			Owner:       owner,
+			ImageDigest: p.ImageDigest,
+			ImageRef:    p.ImageRef,
+			Replicas:    p.Replicas,
+			Resources:   p.Resources,
+			Strategy:    p.Strategy,
+			Labels:      p.Labels,
+			UpdatedAt:   tx.Timestamp,
+		}
+		if rec.Strategy == "" {
+			rec.Strategy = "Recreate"
+		}
+		if ok {
+			if rec.ImageDigest == "" {
+				rec.ImageDigest = existing.ImageDigest
+			}
+			if rec.ImageRef == "" {
+				rec.ImageRef = existing.ImageRef
+			}
+			if rec.Owner == "" {
+				rec.Owner = existing.Owner
+			}
+			if len(rec.Labels) == 0 {
+				rec.Labels = existing.Labels
+			}
+			rec.CreatedAt = existing.CreatedAt
+			rec.Status = existing.Status
+		} else {
+			rec.CreatedAt = tx.Timestamp
+		}
+		rec.Status.Desired = rec.Replicas
+		st.Workloads[p.WorkloadID] = rec
+		delete(st.Tombstones, WorkloadTomb(p.WorkloadID))
+		return nil
+
+	case MsgScaleWorkload:
+		var p ScaleWorkloadPayload
+		if err := json.Unmarshal(tx.Payload, &p); err != nil {
+			return fmt.Errorf("scale workload payload: %w", err)
+		}
+		if p.WorkloadID == "" {
+			return fmt.Errorf("workload_id is required")
+		}
+		rec, ok := st.Workloads[p.WorkloadID]
+		if !ok {
+			return fmt.Errorf("workload %s not found", p.WorkloadID)
+		}
+		rec.Replicas = p.Replicas
+		rec.Status.Desired = p.Replicas
+		rec.UpdatedAt = tx.Timestamp
+		st.Workloads[p.WorkloadID] = rec
+		return nil
+
+	case MsgDeleteWorkload:
+		var p DeleteWorkloadPayload
+		if err := json.Unmarshal(tx.Payload, &p); err != nil {
+			return fmt.Errorf("delete workload payload: %w", err)
+		}
+		if p.WorkloadID == "" {
+			return fmt.Errorf("workload_id is required")
+		}
+		delete(st.Workloads, p.WorkloadID)
+		st.Tombstones[WorkloadTomb(p.WorkloadID)] = tx.Timestamp
 		return nil
 
 	default:

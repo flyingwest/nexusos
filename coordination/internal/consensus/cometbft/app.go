@@ -202,6 +202,8 @@ func (a *App) validateBytes(raw []byte) (ledger.Tx, uint32, string) {
 	case ledger.MsgRegisterImage, ledger.MsgVerifyImage,
 		ledger.MsgCreateContainer, ledger.MsgUpdateContainer,
 		ledger.MsgRemoveContainer,
+		ledger.MsgCreateWorkload, ledger.MsgUpdateWorkload,
+		ledger.MsgScaleWorkload, ledger.MsgDeleteWorkload,
 		ledger.MsgJoinMember, ledger.MsgLeaveMember:
 		// ok
 	default:
@@ -247,6 +249,7 @@ type consensusDigest struct {
 	Images     map[string]ledger.ImageRecord     `json:"images"`
 	Containers map[string]ledger.ContainerRecord `json:"containers"`
 	Migrations map[string]ledger.MigrationRecord `json:"migrations"`
+	Workloads  map[string]ledger.WorkloadRecord  `json:"workloads,omitempty"`
 	Members    map[string]ledger.MemberRecord    `json:"members,omitempty"`
 	Tombstones map[string]time.Time              `json:"tombstones,omitempty"`
 }
@@ -256,6 +259,7 @@ func hashState(st *ledger.State) []byte {
 		Images:     st.Images,
 		Containers: st.Containers,
 		Migrations: st.Migrations,
+		Workloads:  st.Workloads,
 		Members:    st.Members,
 		Tombstones: st.Tombstones,
 	}

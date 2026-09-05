@@ -1,4 +1,4 @@
-.PHONY: build run test tidy clean install coordinator nexusctl e2e image image-devsmoke qemu-smoke qemu-e2e test-provision
+.PHONY: build run test tidy clean install coordinator nexusctl e2e e2e-workload image image-devsmoke qemu-smoke qemu-e2e test-provision
 
 COORD_DIR := coordination
 
@@ -22,6 +22,9 @@ test-provision:
 
 e2e: build
 	./scripts/e2e-two-node-mock.sh
+
+e2e-workload: build
+	./scripts/e2e-workload-mock.sh
 
 tidy:
 	cd $(COORD_DIR) && go mod tidy

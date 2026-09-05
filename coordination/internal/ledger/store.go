@@ -65,6 +65,9 @@ func (s *Store) load() error {
 	if st.Members == nil {
 		st.Members = make(map[string]MemberRecord)
 	}
+	if st.Workloads == nil {
+		st.Workloads = make(map[string]WorkloadRecord)
+	}
 	s.data = &st
 	return nil
 }
@@ -90,6 +93,7 @@ func (s *Store) Snapshot() State {
 		Images:     make(map[string]ImageRecord, len(s.data.Images)),
 		Containers: make(map[string]ContainerRecord, len(s.data.Containers)),
 		Migrations: make(map[string]MigrationRecord, len(s.data.Migrations)),
+		Workloads:  make(map[string]WorkloadRecord, len(s.data.Workloads)),
 		Members:    make(map[string]MemberRecord, len(s.data.Members)),
 		Tombstones: make(map[string]time.Time, len(s.data.Tombstones)),
 	}
@@ -104,6 +108,9 @@ func (s *Store) Snapshot() State {
 	}
 	for k, v := range s.data.Migrations {
 		out.Migrations[k] = v
+	}
+	for k, v := range s.data.Workloads {
+		out.Workloads[k] = v
 	}
 	for k, v := range s.data.Members {
 		out.Members[k] = v
@@ -229,6 +236,46 @@ func (s *Store) RemoveContainer(id string) error {
 	delete(s.data.Containers, id)
 	s.data.Tombstones[ContainerTomb(id)] = time.Now().UTC()
 	return s.save()
+}
+
+func (s *Store) UpsertWorkload(w WorkloadRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w.UpdatedAt = time.Now().UTC()
+	if w.CreatedAt.IsZero() {
+		w.CreatedAt = w.UpdatedAt
+	}
+	delete(s.data.Tombstones, WorkloadTomb(w.WorkloadID))
+	if s.data.Workloads == nil {
+		s.data.Workloads = make(map[string]WorkloadRecord)
+	}
+	s.data.Workloads[w.WorkloadID] = w
+	return s.save()
+}
+
+func (s *Store) RemoveWorkload(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data.Workloads, id)
+	s.data.Tombstones[WorkloadTomb(id)] = time.Now().UTC()
+	return s.save()
+}
+
+func (s *Store) GetWorkload(id string) (WorkloadRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	w, ok := s.data.Workloads[id]
+	return w, ok
+}
+
+func (s *Store) ListWorkloads() []WorkloadRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]WorkloadRecord, 0, len(s.data.Workloads))
+	for _, w := range s.data.Workloads {
+		out = append(out, w)
+	}
+	return out
 }
 
 // ApplyTxs applies an ordered, already-verified batch and persists once.

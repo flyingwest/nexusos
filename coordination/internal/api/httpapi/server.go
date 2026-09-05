@@ -111,6 +111,11 @@ func New(opts Options) *Server {
 	mux.HandleFunc("POST /v1/cluster/leave", s.handleClusterLeave)
 	mux.HandleFunc("POST /v1/cluster/sync", s.handleClusterSync)
 	mux.HandleFunc("GET /v1/cometbft/bootstrap", s.handleCometBFTBootstrap)
+	mux.HandleFunc("GET /v1/workloads", s.handleListWorkloads)
+	mux.HandleFunc("GET /v1/workloads/{id}", s.handleGetWorkload)
+	mux.HandleFunc("POST /v1/workloads", s.handleCreateWorkload)
+	mux.HandleFunc("DELETE /v1/workloads/{id}", s.handleDeleteWorkload)
+	mux.HandleFunc("POST /v1/workloads/{id}/scale", s.handleScaleWorkload)
 	mux.HandleFunc("POST /v1/net/hello", s.handleNetHello)
 	mux.HandleFunc("POST /v1/net/pair", s.handleNetPair)
 	mux.HandleFunc("POST /v1/net/sync", s.handleNetSync)
@@ -176,7 +181,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		"mode":       s.mode,
 		"advertise":  advertise,
 		"role":       "coordinator",
-		"phase":      "2-consensus",
+		"phase":      "3-orchestration",
 		"consensus":  s.txSubmitter != nil,
 	})
 }
@@ -671,12 +676,14 @@ func (s *Server) commitContainer(ctx context.Context, payload ledger.ContainerPa
 		return
 	}
 	_ = s.ledger.UpsertContainer(ledger.ContainerRecord{
-		ContainerID: payload.ContainerID,
-		ImageDigest: payload.ImageDigest,
-		Owner:       payload.Owner,
-		Desired:     payload.Desired,
-		CurrentNode: payload.CurrentNode,
-		Labels:      payload.Labels,
+		ContainerID:  payload.ContainerID,
+		ImageDigest:  payload.ImageDigest,
+		Owner:        payload.Owner,
+		Desired:      payload.Desired,
+		CurrentNode:  payload.CurrentNode,
+		WorkloadID:   payload.WorkloadID,
+		ReplicaIndex: payload.ReplicaIndex,
+		Labels:       payload.Labels,
 	})
 }
 

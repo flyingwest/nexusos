@@ -47,6 +47,7 @@ func main() {
 		cmdLeave(),
 		cmdSync(),
 		cmdCometBFT(),
+		cmdWorkloads(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -456,5 +457,76 @@ func cmdCometBFT() *cobra.Command {
 	}
 	fetch.Flags().String("data-dir", "", "local coordinator data directory")
 	c.AddCommand(fetch)
+	return c
+}
+
+func cmdWorkloads() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "workloads",
+		Short: "Manage declarative workloads (Phase 3)",
+	}
+
+	c.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List workloads",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doGET("/v1/workloads", nil)
+		},
+	})
+
+	c.AddCommand(&cobra.Command{
+		Use:   "get [id]",
+		Short: "Get a workload",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doGET("/v1/workloads/"+args[0], nil)
+		},
+	})
+
+	create := &cobra.Command{
+		Use:   "create [id]",
+		Short: "Create a workload",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			image, _ := cmd.Flags().GetString("image")
+			digest, _ := cmd.Flags().GetString("digest")
+			replicas, _ := cmd.Flags().GetUint32("replicas")
+			payload := map[string]any{
+				"workload_id":  args[0],
+				"image_ref":    image,
+				"image_digest": digest,
+				"replicas":     replicas,
+			}
+			return doJSON(http.MethodPost, "/v1/workloads", payload, nil)
+		},
+	}
+	create.Flags().String("image", "", "image reference (pulled/resolved if digest omitted)")
+	create.Flags().String("digest", "", "image digest sha256:...")
+	create.Flags().Uint32("replicas", 1, "desired replica count")
+	c.AddCommand(create)
+
+	scale := &cobra.Command{
+		Use:   "scale [id] [replicas]",
+		Short: "Scale a workload",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var n uint32
+			if _, err := fmt.Sscanf(args[1], "%d", &n); err != nil {
+				return fmt.Errorf("replicas: %w", err)
+			}
+			return doJSON(http.MethodPost, "/v1/workloads/"+args[0]+"/scale", map[string]any{"replicas": n}, nil)
+		},
+	}
+	c.AddCommand(scale)
+
+	c.AddCommand(&cobra.Command{
+		Use:   "delete [id]",
+		Short: "Delete a workload",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doJSON(http.MethodDelete, "/v1/workloads/"+args[0], nil, nil)
+		},
+	})
+
 	return c
 }
