@@ -40,6 +40,7 @@ Every node runs this full stack. The network of OS instances *is* the system. Th
 4. **Userspace coordination** — The ledger and coordination logic live above the kernel.
 5. **Narrow ledger** — Only the facts required for integrity, placement, and coordination between OS nodes.
 6. **Simple native orchestration (secondary)** — Built on the distributed OS foundation; kept deliberately limited.
+   - Phase 3 increment: declarative Workloads + least-loaded scheduler + reconciler (`docs/phase3-orchestration.md`).
 7. **Permissioned first** — Reliable private/edge networks before open permissionless mode.
 8. **UI + structured state** — Operators work with data and a UI; YAML is secondary.
 9. **OCI compatible & incremental** — Standard containers; ship working slices.

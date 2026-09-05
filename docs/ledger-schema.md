@@ -91,7 +91,7 @@ Member {
 }
 ```
 
-Tombstone keys include `member:<node_id>` after LeaveMember (in addition to `container:` / `migration:`).
+Tombstone keys include `member:<node_id>` after LeaveMember and `workload:<id>` after DeleteWorkload (in addition to `container:` / `migration:`).
 
 ### ResourceSpec (shared)
 ```text
@@ -109,6 +109,9 @@ On-chain today (CometBFT ABCI):
 
 - RegisterImage / VerifyImage
 - CreateContainer / UpdateContainer / RemoveContainer
+- CreateWorkload / UpdateWorkload / ScaleWorkload / DeleteWorkload (Phase 3)
+  - Workload tombstone key `workload:<workload_id>`
+  - Placement uses deterministic container ids `wl:<workload_id>:<replica_index>`
 - JoinMember / LeaveMember (permissioned membership; drives CometBFT validators)
   - LeaveMember stamps tombstone key `member:<node_id>` and refuses leaving the last usable validator
 
@@ -116,7 +119,6 @@ On-chain today (CometBFT ABCI):
 Still off-chain (HTTP snapshot / local):
 
 - RegisterNode / Heartbeat (liveness)
-- CreateWorkload / UpdateWorkload / ScaleWorkload / DeleteWorkload (Phase 3)
 - ProposeMigration / AcceptMigration / CompleteMigration / FailMigration (Phase 4)
 
 ## Design Rules

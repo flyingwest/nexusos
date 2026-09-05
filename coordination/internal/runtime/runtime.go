@@ -54,6 +54,7 @@ type ImageInfo struct {
 
 // StartOptions controls container creation.
 type StartOptions struct {
+	ID          string // optional predetermined id (workload replicas)
 	Name        string
 	ImageRef    string // prefer digest form: @sha256:...
 	Labels      map[string]string

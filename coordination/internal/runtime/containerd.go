@@ -129,10 +129,17 @@ func (c *ContainerdRuntime) Start(ctx context.Context, opts StartOptions) (*Cont
 		}
 	}
 
-	id := uuid.New().String()
+	id := opts.ID
+	if id == "" {
+		id = uuid.New().String()
+	}
 	name := opts.Name
 	if name == "" {
-		name = id[:8]
+		if len(id) >= 8 {
+			name = id[:8]
+		} else {
+			name = id
+		}
 	}
 
 	labels := map[string]string{

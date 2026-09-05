@@ -27,6 +27,9 @@ func MergeState(dst *State, src State) {
 	if dst.Members == nil {
 		dst.Members = make(map[string]MemberRecord)
 	}
+	if dst.Workloads == nil {
+		dst.Workloads = make(map[string]WorkloadRecord)
+	}
 	// Members are consensus-ordered (JoinMember/LeaveMember). Never merge from
 	// HTTP snapshot sync or peers can diverge on NextValidatorsHash.
 
@@ -92,6 +95,22 @@ func MergeState(dst *State, src State) {
 	for id, rec := range dst.Migrations {
 		if supersededByTomb(dst, MigrationTomb(id), migTime(rec)) {
 			delete(dst.Migrations, id)
+		}
+	}
+
+	for id, remote := range src.Workloads {
+		if supersededByTomb(dst, WorkloadTomb(id), remote.UpdatedAt) {
+			delete(dst.Workloads, id)
+			continue
+		}
+		local, ok := dst.Workloads[id]
+		if !ok || remote.UpdatedAt.After(local.UpdatedAt) {
+			dst.Workloads[id] = remote
+		}
+	}
+	for id, rec := range dst.Workloads {
+		if supersededByTomb(dst, WorkloadTomb(id), rec.UpdatedAt) {
+			delete(dst.Workloads, id)
 		}
 	}
 }

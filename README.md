@@ -8,7 +8,7 @@ The shared ledger tracks **container image integrity** and **which containers ru
 
 Native orchestration exists, but it is secondary to the distributed OS foundation.
 
-> **Status**: Phase 2 **FROZEN** baseline + post-freeze packaging. Permissioned peer ledger sync, required join-token + API token + TLS. **Consensus engine is CometBFT only** (in-process) — see [docs/cometbft-spike.md](docs/cometbft-spike.md). Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
+> **Status**: Phase 2 **FROZEN** + **Phase 3 workloads (incremental)**. Permissioned peer ledger sync, required join-token + API token + TLS. **Consensus engine is CometBFT only** (in-process) — see [docs/cometbft-spike.md](docs/cometbft-spike.md). Declarative workloads with least-loaded scheduling + reconciler — see [docs/phase3-orchestration.md](docs/phase3-orchestration.md). Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
 
 ---
 
@@ -132,7 +132,7 @@ containerd remains supported via `--mock=false` but is **not** required for CI o
 
 ```bash
 ./bin/coordinator --dev --mock   # CometBFT by default
-./scripts/e2e-cometbft-two-node.sh   # two-node CometBFT mock harness (genesis-from + pair-after-start)
+./scripts/e2e-cometbft-two-node.sh, e2e-workload-mock.sh   # two-node CometBFT mock harness (genesis-from + pair-after-start)
 ./scripts/e2e-two-node-mock.sh       # thin wrapper → e2e-cometbft-two-node.sh
 ```
 
@@ -152,6 +152,7 @@ nexusos/
 │   ├── ledger-schema.md
 │   ├── decisions.md
 │   ├── phase2-freeze.md    # Phase 2 exit / freeze checklist
+│   ├── phase3-orchestration.md  # Workloads / scheduler / reconciler
 │   ├── node-image.md       # Debian Bookworm node image build/boot
 │   └── cometbft-spike.md   # CometBFT embed (sole consensus engine)
 ├── coordination/           # Go module – coordination service
@@ -181,7 +182,7 @@ nexusos/
 | 1     | Single-node host + image integrity (done) |
 | 2     | Multi-node OS network + shared ledger — **FROZEN** (HTTP sync + CometBFT; tokens+TLS) |
 | 2.1   | Minimal Debian Bookworm node image (mmdebstrap) — tooling in-tree; privileged build manual |
-| 3     | Simple native orchestration (secondary) — deferred |
+| 3     | Simple native orchestration (workloads) — in progress |
 | 4     | Coordinated cold migration (CRIU) — deferred |
 | 5     | Hardening + permissionless path |
 

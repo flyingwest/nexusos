@@ -64,10 +64,22 @@ func (m *MockRuntime) Start(ctx context.Context, opts StartOptions) (*ContainerI
 		}
 	}
 
-	id := uuid.New().String()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	id := opts.ID
+	if id == "" {
+		id = uuid.New().String()
+	} else if _, exists := m.containers[id]; exists {
+		return nil, fmt.Errorf("container %q already exists", id)
+	}
 	name := opts.Name
 	if name == "" {
-		name = id[:8]
+		if len(id) >= 8 {
+			name = id[:8]
+		} else {
+			name = id
+		}
 	}
 
 	now := time.Now().UTC()
@@ -80,13 +92,11 @@ func (m *MockRuntime) Start(ctx context.Context, opts StartOptions) (*ContainerI
 		CreatedAt:   now,
 		Labels:      opts.Labels,
 	}
-
-	m.mu.Lock()
 	m.containers[id] = c
-	m.mu.Unlock()
-
-	return c, nil
+	cp := *c
+	return &cp, nil
 }
+
 
 func (m *MockRuntime) Stop(ctx context.Context, id string, timeout time.Duration) error {
 	m.mu.Lock()
