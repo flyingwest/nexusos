@@ -16,6 +16,7 @@ import (
 
 var apiBase = "https://127.0.0.1:8080"
 var apiToken = ""
+var joinToken = ""
 var tlsInsecure = false
 var tlsCAFile = ""
 
@@ -28,6 +29,7 @@ func main() {
 
 	root.PersistentFlags().StringVar(&apiBase, "api", apiBase, "API base URL")
 	root.PersistentFlags().StringVar(&apiToken, "token", "", "API bearer token")
+	root.PersistentFlags().StringVar(&joinToken, "join-token", "", "cluster join-token (for CometBFT bootstrap fetch)")
 	root.PersistentFlags().BoolVar(&tlsInsecure, "insecure", false, "skip TLS certificate verification (self-signed)")
 	root.PersistentFlags().StringVar(&tlsCAFile, "cacert", "", "optional CA certificate PEM for TLS verification")
 
@@ -45,6 +47,7 @@ func main() {
 		cmdLeave(),
 		cmdSync(),
 		cmdChain(),
+		cmdCometBFT(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -55,6 +58,9 @@ func main() {
 func applyAuth(req *http.Request) {
 	if apiToken != "" {
 		req.Header.Set("Authorization", "Bearer "+apiToken)
+	}
+	if joinToken != "" {
+		req.Header.Set("X-Nexus-Join-Token", joinToken)
 	}
 }
 
@@ -400,4 +406,66 @@ func cmdChain() *cobra.Command {
 			return doGET("/v1/chain", nil)
 		},
 	}
+}
+
+func cmdCometBFT() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "cometbft",
+		Short: "CometBFT helpers (shared genesis bootstrap)",
+	}
+	c.AddCommand(&cobra.Command{
+		Use:   "bootstrap",
+		Short: "Fetch shared genesis + peer info from a seed coordinator",
+		Long:  "GET /v1/cometbft/bootstrap (API token and/or --join-token). Prints JSON with genesis, peer, and p2p fields.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doGET("/v1/cometbft/bootstrap", nil)
+		},
+	})
+	fetch := &cobra.Command{
+		Use:   "fetch-genesis",
+		Short: "Download seed genesis into a local data-dir (before starting coordinator)",
+		Long:  "Writes <data-dir>/cometbft/config/genesis.json from the seed bootstrap endpoint. Prints the suggested --cometbft-peers value.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dataDir, _ := cmd.Flags().GetString("data-dir")
+			if dataDir == "" {
+				return fmt.Errorf("--data-dir is required")
+			}
+			var info struct {
+				Genesis   json.RawMessage `json:"genesis"`
+				Peer      string          `json:"peer"`
+				P2PNodeID string          `json:"p2p_node_id"`
+				P2PListen string          `json:"p2p_listen"`
+				ChainID   string          `json:"chain_id"`
+			}
+			if err := doGET("/v1/cometbft/bootstrap", &info); err != nil {
+				return err
+			}
+			if len(info.Genesis) == 0 {
+				return fmt.Errorf("bootstrap response missing genesis")
+			}
+			genPath := dataDir + "/cometbft/config/genesis.json"
+			if err := os.MkdirAll(dataDir+"/cometbft/config", 0o700); err != nil {
+				return err
+			}
+			if _, err := os.Stat(genPath); err == nil {
+				fmt.Fprintf(os.Stderr, "genesis already exists at %s (leaving unchanged)\n", genPath)
+			} else {
+				if err := os.WriteFile(genPath, append(info.Genesis, '\n'), 0o644); err != nil {
+					return err
+				}
+				fmt.Fprintf(os.Stderr, "wrote %s\n", genPath)
+			}
+			peer := info.Peer
+			if peer == "" && info.P2PNodeID != "" && info.P2PListen != "" {
+				peer = info.P2PNodeID + "@" + info.P2PListen
+			}
+			if peer != "" {
+				fmt.Println(peer)
+			}
+			return nil
+		},
+	}
+	fetch.Flags().String("data-dir", "", "local coordinator data directory")
+	c.AddCommand(fetch)
+	return c
 }

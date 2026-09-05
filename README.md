@@ -128,12 +128,12 @@ containerd remains supported via `--mock=false` but is **not** required for CI o
 
 ### Consensus engine (CometBFT default)
 
-Default `--consensus-engine=cometbft` runs an in-process CometBFT node (strict mempool Submit, membership `JoinMember`/`LeaveMember` txs, dynamic validators). Hash-chain remains available via `--consensus-engine=hashchain` (deprecated; logs a warning). See [docs/cometbft-spike.md](docs/cometbft-spike.md).
+Default `--consensus-engine=cometbft` runs an in-process CometBFT node (strict mempool Submit, membership `JoinMember`/`LeaveMember` txs, dynamic validators). Multi-node shared genesis: `--cometbft-genesis-from <seed-url>` or `nexusctl cometbft fetch-genesis` (see [docs/cometbft-spike.md](docs/cometbft-spike.md)). Hash-chain remains available via `--consensus-engine=hashchain` (deprecated; logs a warning). `--consensus-shadow-hashchain` is a stub flag for a future dual-run checklist.
 
 ```bash
 ./bin/coordinator --dev --mock   # CometBFT by default
 ./bin/coordinator --dev --mock --consensus-engine=hashchain   # deprecated path
-./scripts/e2e-cometbft-two-node.sh   # two-node CometBFT mock harness (pair-after-start)
+./scripts/e2e-cometbft-two-node.sh   # two-node CometBFT mock harness (genesis-from + pair-after-start)
 ./scripts/e2e-two-node-mock.sh       # explicit hash-chain two-node path
 ```
 

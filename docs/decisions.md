@@ -266,3 +266,21 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 **Rationale**: Expand-only membership left operators without a permissioned way to shrink the validator set. Last-validator refusal + tombstones close the safety gap without Phase 3 scope or removing hash-chain.
 
 **Status**: Accepted
+
+---
+
+## 2026-09-05 – Shared CometBFT genesis bootstrap + shadow stub
+
+**Decision**: Automate multi-node shared genesis via **seed HTTP bootstrap** rather than inventing CometBFT P2P genesis gossip:
+
+1. `GET /v1/cometbft/bootstrap` returns genesis JSON + `peer` (`id@host:port`). Auth: operator **API bearer** **or** `X-Nexus-Join-Token` (join-token check).
+2. Joining coordinators use `--cometbft-genesis-from <seed-url>` to install genesis before `StartNode`; empty `--cometbft-peers` inherits the seed peer hint.
+3. `nexusctl cometbft bootstrap` / `fetch-genesis` for operators who prefer an explicit offline step.
+4. Wire `scripts/e2e-cometbft-two-node.sh` to the genesis-from path (no manual `cp`).
+
+**Shadow**: Accept `--consensus-shadow-hashchain` as a **stub** (log + docs checklist only). Do **not** dual-write in this PR; keep hash-chain code for the deprecation window (removal is a later step). Do **not** start Phase 3.
+
+**Rationale**: Manual genesis copy was the remaining multi-node footgun after leave/eviction. Join-token-gated HTTP matches the existing permissioned pairing model and is the simplest reliable automation. Full dual-run is higher risk than this polish and belongs with the hash-chain deprecation follow-up.
+
+**Status**: Accepted
+

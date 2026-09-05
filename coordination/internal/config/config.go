@@ -54,6 +54,12 @@ type Config struct {
 	CometBFTP2P string `json:"cometbft_p2p"`
 	// CometBFTPeers is a CometBFT persistent_peers list (id@host:port,...).
 	CometBFTPeers string `json:"cometbft_peers"`
+	// CometBFTGenesisFrom is a seed coordinator URL; when set, fetch shared
+	// genesis (+ peer hint) via GET /v1/cometbft/bootstrap before starting CometBFT.
+	CometBFTGenesisFrom string `json:"cometbft_genesis_from"`
+	// ConsensusShadowHashchain requests optional hash-chain shadow alongside
+	// CometBFT. Full dual-write is deferred; the flag is accepted as a stub.
+	ConsensusShadowHashchain bool `json:"consensus_shadow_hashchain"`
 }
 
 // Default returns a sensible development configuration.

@@ -38,6 +38,9 @@ type Server struct {
 	engine             *p2p.Engine
 	consensus          *consensus.Engine
 	txSubmitter        TxSubmitter // when set (CometBFT), strict — no local upsert fallback
+	joinToken          string
+	cometbftHome       string
+	cometbftP2P        string // tcp://host:port listen used for bootstrap peer string
 	server             *http.Server
 }
 
@@ -59,6 +62,11 @@ type Options struct {
 	// TxSubmitter, when non-nil, handles image/placement commits strictly
 	// (no silent local ledger upsert on failure). Used for CometBFT.
 	TxSubmitter TxSubmitter
+	// JoinToken authorizes GET /v1/cometbft/bootstrap (alternative to API token).
+	JoinToken string
+	// CometBFTHome / CometBFTP2P enable the shared-genesis bootstrap endpoint.
+	CometBFTHome string
+	CometBFTP2P  string
 }
 
 // New creates an HTTP API server.
@@ -78,6 +86,9 @@ func New(opts Options) *Server {
 		engine:             opts.Engine,
 		consensus:          opts.Consensus,
 		txSubmitter:        opts.TxSubmitter,
+		joinToken:          opts.JoinToken,
+		cometbftHome:       opts.CometBFTHome,
+		cometbftP2P:        opts.CometBFTP2P,
 	}
 
 	mux := http.NewServeMux()
@@ -104,6 +115,7 @@ func New(opts Options) *Server {
 	mux.HandleFunc("POST /v1/cluster/leave", s.handleClusterLeave)
 	mux.HandleFunc("POST /v1/cluster/sync", s.handleClusterSync)
 	mux.HandleFunc("GET /v1/chain", s.handleChain)
+	mux.HandleFunc("GET /v1/cometbft/bootstrap", s.handleCometBFTBootstrap)
 	mux.HandleFunc("POST /v1/net/hello", s.handleNetHello)
 	mux.HandleFunc("POST /v1/net/pair", s.handleNetPair)
 	mux.HandleFunc("POST /v1/net/sync", s.handleNetSync)
