@@ -21,7 +21,7 @@
 
 ## Explicitly deferred (out of Phase 2)
 
-- [ ] Embed CometBFT (or other BFT engine) in place of the permissioned hash-chain proposer
+- [x] Embed CometBFT in place of the permissioned hash-chain proposer (hash-chain removed; see `docs/cometbft-spike.md`)
 - [ ] Minimal Linux / OS node image packaging — **started post-freeze** (see `docs/node-image.md`; not part of the freeze itself)
 - [ ] Phase 3 native orchestration (workloads, scheduler, reconciler)
 - [ ] CRIU cold migration
@@ -40,5 +40,5 @@ cd .. && (cd coordination && go build -o ../bin/coordinator ./cmd/coordinator &&
 ## Known limits
 
 - Self-signed / `--dev` skips peer certificate verification (`TLSInsecureSkipVerify`).
-- Hash-chain consensus is permissioned majority voting, not BFT finality.
+- Historical note: Phase 2 originally shipped permissioned hash-chain majority voting; that engine is removed. CometBFT is the sole consensus path (see `docs/cometbft-spike.md`).
 - Mock runtime is the default CI path; containerd is optional and host-specific.

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nexusos/coordination/internal/consensus"
 	"github.com/nexusos/coordination/internal/identity"
 	"github.com/nexusos/coordination/internal/ledger"
 	"github.com/nexusos/coordination/internal/membership"
@@ -36,7 +35,6 @@ type Server struct {
 	ledger             *ledger.Store
 	members            *membership.Store
 	engine             *p2p.Engine
-	consensus          *consensus.Engine
 	txSubmitter        TxSubmitter // when set (CometBFT), strict — no local upsert fallback
 	joinToken          string
 	cometbftHome       string
@@ -58,7 +56,6 @@ type Options struct {
 	Ledger             *ledger.Store
 	Members            *membership.Store
 	Engine             *p2p.Engine
-	Consensus          *consensus.Engine
 	// TxSubmitter, when non-nil, handles image/placement commits strictly
 	// (no silent local ledger upsert on failure). Used for CometBFT.
 	TxSubmitter TxSubmitter
@@ -84,7 +81,6 @@ func New(opts Options) *Server {
 		ledger:             opts.Ledger,
 		members:            opts.Members,
 		engine:             opts.Engine,
-		consensus:          opts.Consensus,
 		txSubmitter:        opts.TxSubmitter,
 		joinToken:          opts.JoinToken,
 		cometbftHome:       opts.CometBFTHome,
@@ -114,14 +110,10 @@ func New(opts Options) *Server {
 	mux.HandleFunc("POST /v1/cluster/pair", s.handleClusterPair)
 	mux.HandleFunc("POST /v1/cluster/leave", s.handleClusterLeave)
 	mux.HandleFunc("POST /v1/cluster/sync", s.handleClusterSync)
-	mux.HandleFunc("GET /v1/chain", s.handleChain)
 	mux.HandleFunc("GET /v1/cometbft/bootstrap", s.handleCometBFTBootstrap)
 	mux.HandleFunc("POST /v1/net/hello", s.handleNetHello)
 	mux.HandleFunc("POST /v1/net/pair", s.handleNetPair)
 	mux.HandleFunc("POST /v1/net/sync", s.handleNetSync)
-	mux.HandleFunc("POST /v1/net/propose", s.handleNetPropose)
-	mux.HandleFunc("POST /v1/net/commit", s.handleNetCommit)
-	mux.HandleFunc("POST /v1/net/tx", s.handleNetTx)
 
 	handler := withLogging(withAuth(opts.APIToken, mux))
 	s.server = &http.Server{
@@ -185,7 +177,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		"advertise":  advertise,
 		"role":       "coordinator",
 		"phase":      "2-consensus",
-		"consensus":  s.consensus != nil,
+		"consensus":  s.txSubmitter != nil,
 	})
 }
 
@@ -477,8 +469,8 @@ func (s *Server) handleClusterLeave(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "left", "node_id": id})
 }
 
-// submitMembership tries TxSubmitter then hash-chain consensus. Returns true if
-// handled (caller should not local-mutate). On submit error writes response.
+// submitMembership tries TxSubmitter (CometBFT). Returns true if handled
+// (caller should not local-mutate). On submit error writes response.
 func (s *Server) submitMembership(w http.ResponseWriter, r *http.Request, typ ledger.MessageType, payload ledger.MemberPayload) bool {
 	if s.kp == nil {
 		return false
@@ -490,13 +482,6 @@ func (s *Server) submitMembership(w http.ResponseWriter, r *http.Request, typ le
 	}
 	if s.txSubmitter != nil {
 		if err := s.txSubmitter.Submit(r.Context(), tx); err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
-			return true
-		}
-		return true
-	}
-	if s.consensus != nil {
-		if err := s.consensus.Submit(r.Context(), tx); err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return true
 		}
@@ -651,91 +636,6 @@ func (s *Server) handleNetSync(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) requireConsensus(w http.ResponseWriter) bool {
-	if s.consensus == nil {
-		writeError(w, http.StatusServiceUnavailable, "consensus engine not configured")
-		return false
-	}
-	return true
-}
-
-func (s *Server) handleChain(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsensus(w) {
-		return
-	}
-	writeJSON(w, http.StatusOK, s.consensus.Status())
-}
-
-func (s *Server) handleNetPropose(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsensus(w) {
-		return
-	}
-	var req consensus.Propose
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	vote, err := s.consensus.HandlePropose(req)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, vote)
-}
-
-func (s *Server) handleNetCommit(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsensus(w) {
-		return
-	}
-	var req consensus.Commit
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	if err := s.consensus.HandleCommit(req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status": "committed",
-		"height": req.Block.Height,
-		"hash":   req.Block.Hash,
-	})
-}
-
-func (s *Server) handleNetTx(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsensus(w) {
-		return
-	}
-	var tx ledger.Tx
-	if err := json.NewDecoder(r.Body).Decode(&tx); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	commit, err := s.consensus.HandleTx(r.Context(), tx)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, commit)
-}
-
-func (s *Server) tryConsensus(ctx context.Context, typ ledger.MessageType, payload any) bool {
-	if s.consensus == nil {
-		return false
-	}
-	tx, err := ledger.NewTx(s.kp, typ, payload, time.Now().UTC())
-	if err != nil {
-		log.Printf("consensus tx: %v", err)
-		return false
-	}
-	if err := s.consensus.Submit(ctx, tx); err != nil {
-		log.Printf("consensus submit: %v", err)
-		return false
-	}
-	return true
-}
-
 // submitStrict sends a tx through TxSubmitter. Returns true if a submitter is
 // configured (caller must not fall back to local upserts either way).
 func (s *Server) submitStrict(ctx context.Context, typ ledger.MessageType, payload any) bool {
@@ -758,9 +658,6 @@ func (s *Server) commitImage(ctx context.Context, digest string, size int64) {
 	if s.submitStrict(ctx, ledger.MsgRegisterImage, payload) {
 		return
 	}
-	if s.tryConsensus(ctx, ledger.MsgRegisterImage, payload) {
-		return
-	}
 	_ = s.ledger.UpsertImage(ledger.ImageRecord{
 		Digest:     digest,
 		Size:       size,
@@ -771,9 +668,6 @@ func (s *Server) commitImage(ctx context.Context, digest string, size int64) {
 
 func (s *Server) commitContainer(ctx context.Context, payload ledger.ContainerPayload, typ ledger.MessageType) {
 	if s.submitStrict(ctx, typ, payload) {
-		return
-	}
-	if s.tryConsensus(ctx, typ, payload) {
 		return
 	}
 	_ = s.ledger.UpsertContainer(ledger.ContainerRecord{
@@ -788,9 +682,6 @@ func (s *Server) commitContainer(ctx context.Context, payload ledger.ContainerPa
 
 func (s *Server) commitRemove(ctx context.Context, id string) {
 	if s.submitStrict(ctx, ledger.MsgRemoveContainer, ledger.RemovePayload{ContainerID: id}) {
-		return
-	}
-	if s.tryConsensus(ctx, ledger.MsgRemoveContainer, ledger.RemovePayload{ContainerID: id}) {
 		return
 	}
 	_ = s.ledger.RemoveContainer(id)

@@ -1,8 +1,8 @@
 // Command cometbft-abci-harness exposes the NexusOS CometBFT ABCI application
 // over a socket so an external CometBFT process can drive it.
 //
-// This is a spike helper for a later PR that wires a full consensus node.
-// Default coordinator path remains the permissioned hash-chain.
+// This is a spike helper for attaching an external CometBFT process.
+// The default coordinator path embeds CometBFT in-process.
 //
 // Example:
 //

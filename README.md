@@ -8,7 +8,7 @@ The shared ledger tracks **container image integrity** and **which containers ru
 
 Native orchestration exists, but it is secondary to the distributed OS foundation.
 
-> **Status**: Phase 2 **FROZEN** baseline + post-freeze packaging. Permissioned peer ledger sync, required join-token + API token + TLS. **Default consensus engine is CometBFT** (in-process); hash-chain remains selectable via `--consensus-engine=hashchain` for a deprecation window — see [docs/cometbft-spike.md](docs/cometbft-spike.md). Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
+> **Status**: Phase 2 **FROZEN** baseline + post-freeze packaging. Permissioned peer ledger sync, required join-token + API token + TLS. **Consensus engine is CometBFT only** (in-process) — see [docs/cometbft-spike.md](docs/cometbft-spike.md). Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
 
 ---
 
@@ -110,7 +110,7 @@ Pair, create state on A, inspect B:
 ./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure containers start docker.io/library/nginx:alpine --name web
 ./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure sync
 ./bin/nexusctl --api https://127.0.0.1:8081 --token secret --insecure ledger
-./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure chain
+./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure ledger
 ./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure nodes
 ```
 
@@ -126,15 +126,14 @@ A node that misses heartbeats for `--heartbeat-timeout` (default 30s) is marked 
 
 containerd remains supported via `--mock=false` but is **not** required for CI or the mock e2e path.
 
-### Consensus engine (CometBFT default)
+### Consensus engine (CometBFT only)
 
-Default `--consensus-engine=cometbft` runs an in-process CometBFT node (strict mempool Submit, membership `JoinMember`/`LeaveMember` txs, dynamic validators). Multi-node shared genesis: `--cometbft-genesis-from <seed-url>` or `nexusctl cometbft fetch-genesis` (see [docs/cometbft-spike.md](docs/cometbft-spike.md)). Hash-chain remains available via `--consensus-engine=hashchain` (deprecated; logs a warning). `--consensus-shadow-hashchain` is a stub flag for a future dual-run checklist.
+`--consensus-engine=cometbft` (default; only supported value) runs an in-process CometBFT node (strict mempool Submit, membership `JoinMember`/`LeaveMember` txs, dynamic validators). Multi-node shared genesis: `--cometbft-genesis-from <seed-url>` or `nexusctl cometbft fetch-genesis` (see [docs/cometbft-spike.md](docs/cometbft-spike.md)). The former hash-chain engine is removed.
 
 ```bash
 ./bin/coordinator --dev --mock   # CometBFT by default
-./bin/coordinator --dev --mock --consensus-engine=hashchain   # deprecated path
 ./scripts/e2e-cometbft-two-node.sh   # two-node CometBFT mock harness (genesis-from + pair-after-start)
-./scripts/e2e-two-node-mock.sh       # explicit hash-chain two-node path
+./scripts/e2e-two-node-mock.sh       # thin wrapper → e2e-cometbft-two-node.sh
 ```
 
 ---
@@ -154,7 +153,7 @@ nexusos/
 │   ├── decisions.md
 │   ├── phase2-freeze.md    # Phase 2 exit / freeze checklist
 │   ├── node-image.md       # Debian Bookworm node image build/boot
-│   └── cometbft-spike.md   # CometBFT embed (default engine; hash-chain deprecated)
+│   └── cometbft-spike.md   # CometBFT embed (sole consensus engine)
 ├── coordination/           # Go module – coordination service
 │   ├── cmd/coordinator/
 │   ├── cmd/nexusctl/
@@ -166,8 +165,8 @@ nexusos/
 │       ├── runtime/        # mock + containerd
 │       ├── ledger/         # placement + image integrity
 │       ├── p2p/            # signed snapshot sync
-│       ├── consensus/      # permissioned hash-chain (placement + images)
-│       │   └── cometbft/   # in-process CometBFT + ABCI (default engine)
+│       └── consensus/
+│           └── cometbft/   # in-process CometBFT + ABCI (sole engine)
 │       └── state/
 ├── scripts/                # install.sh, e2e, qemu-node-smoke/two-node-e2e.sh
 ├── deploy/                 # systemd unit
@@ -180,7 +179,7 @@ nexusos/
 |-------|--------|
 | 0     | Foundation (done) |
 | 1     | Single-node host + image integrity (done) |
-| 2     | Multi-node OS network + shared ledger — **FROZEN** (HTTP sync + hash-chain; tokens+TLS) |
+| 2     | Multi-node OS network + shared ledger — **FROZEN** (HTTP sync + CometBFT; tokens+TLS) |
 | 2.1   | Minimal Debian Bookworm node image (mmdebstrap) — tooling in-tree; privileged build manual |
 | 3     | Simple native orchestration (secondary) — deferred |
 | 4     | Coordinated cold migration (CRIU) — deferred |

@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nexusos/coordination/internal/consensus"
 	"github.com/nexusos/coordination/internal/identity"
 	"github.com/nexusos/coordination/internal/ledger"
 	"github.com/nexusos/coordination/internal/membership"
@@ -23,7 +22,6 @@ type testNode struct {
 	kp     *identity.KeyPair
 	ledger *ledger.Store
 	engine *p2p.Engine
-	ceng   *consensus.Engine
 	srv    *httptest.Server
 }
 
@@ -64,35 +62,20 @@ func newTestNode(t *testing.T, joinToken string) *testNode {
 		Client:    p2p.NewClient(),
 		Interval:  time.Hour,
 	}
-	chain, err := consensus.NewChain(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ceng := &consensus.Engine{
-		KP:      kp,
+	api := New(Options{
+		Addr:    "127.0.0.1:0",
+		Mode:    "permissioned",
+		KeyPair: kp,
+		Runtime: runtime.NewMockRuntime(),
+		Store:   st,
 		Ledger:  led,
 		Members: mem,
-		Peers:   peers,
-		Client:  p2p.NewClient(),
-		Chain:   chain,
-		Timeout: 2 * time.Second,
-	}
-	api := New(Options{
-		Addr:      "127.0.0.1:0",
-		Mode:      "permissioned",
-		KeyPair:   kp,
-		Runtime:   runtime.NewMockRuntime(),
-		Store:     st,
-		Ledger:    led,
-		Members:   mem,
-		Engine:    eng,
-		Consensus: ceng,
+		Engine:  eng,
 	})
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
 	eng.Advertise = srv.URL
-	ceng.Advertise = srv.URL
-	return &testNode{kp: kp, ledger: led, engine: eng, ceng: ceng, srv: srv}
+	return &testNode{kp: kp, ledger: led, engine: eng, srv: srv}
 }
 
 func postJSON(t *testing.T, url string, body any) *http.Response {
@@ -254,45 +237,6 @@ func TestStaleNodeMarkedOfflineAndSynced(t *testing.T) {
 	}
 	decodeBody(t, resp, &body)
 	if body.Offline < 1 {
-		t.Fatalf("expected at least one Offline node, got %+v", body)
-	}
-}
-
-func TestTwoNodeConsensusCommitsImageWithoutSnapshotSync(t *testing.T) {
-	a := newTestNode(t, "cluster")
-	b := newTestNode(t, "cluster")
-	if err := a.engine.PairWith(context.Background(), b.srv.URL); err != nil {
-		t.Fatalf("pair: %v", err)
-	}
-
-	resp := postJSON(t, a.srv.URL+"/v1/images/pull", map[string]string{"ref": "docker.io/library/nginx:alpine"})
-	var img runtimeImage
-	decodeBody(t, resp, &img)
-	if img.Digest == "" {
-		t.Fatal("missing digest")
-	}
-
-	got, ok := b.ledger.Snapshot().Images[img.Digest]
-	if !ok {
-		t.Fatalf("B should already have the image via consensus, chain A=%d B=%d", a.ceng.Chain.Height(), b.ceng.Chain.Height())
-	}
-	if len(got.VerifiedBy) < 1 {
-		t.Fatalf("verified_by: %v", got.VerifiedBy)
-	}
-	if a.ceng.Chain.Height() < 1 || b.ceng.Chain.Height() < 1 {
-		t.Fatalf("expected committed height >= 1, A=%d B=%d", a.ceng.Chain.Height(), b.ceng.Chain.Height())
-	}
-
-	chainResp, err := http.Get(a.srv.URL + "/v1/chain")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var chain struct {
-		Height uint64 `json:"height"`
-		Quorum int    `json:"quorum"`
-	}
-	decodeBody(t, chainResp, &chain)
-	if chain.Height < 1 || chain.Quorum != 2 {
-		t.Fatalf("chain status: %+v", chain)
+		t.Fatalf("expected at least one offline node, got %+v", body)
 	}
 }

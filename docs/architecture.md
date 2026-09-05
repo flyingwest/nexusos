@@ -103,11 +103,11 @@ Same binary, different configuration and membership rules.
 
 Two layers:
 
-**Consensus (image integrity + placement).** Permissioned, hash-chained blocks of Ed25519-signed transactions. Leader is round-robin over sorted member ids. Commit requires `ceil(2n/3)` votes (CometBFT-style). This is crash-fault tolerant among the permissioned set, not a full Byzantine engine. CometBFT can replace the engine later without changing the ledger schema.
+**Consensus (image integrity + placement).** In-process **CometBFT** applies Ed25519-signed `ledger.Tx` values via ABCI (strict mempool Submit). Membership drives dynamic validators (`JoinMember`/`LeaveMember`). HTTP snapshot sync remains for heartbeats and catch-up. See `docs/cometbft-spike.md`. (Historical Phase 2 note: a permissioned hash-chain proposer existed first; it has been removed.)
 
 1. Local start/stop/pull becomes a signed tx (`RegisterImage`, `CreateContainer`, …).
 2. The leader for the next height proposes a block (`POST /v1/net/propose`); followers return a signed vote in the same RPC.
-3. On quorum the leader applies the block, persists `chain.json`, and `POST /v1/net/commit` to peers.
+3. CometBFT FinalizeBlock applies txs to the ledger; peers learn via ABCI height and/or HTTP sync.
 4. A follower that is not leader forwards the tx with `POST /v1/net/tx` and applies the returned commit.
 
 Heartbeats are **not** consensus txs (too frequent). They stay on the HTTP snapshot path.

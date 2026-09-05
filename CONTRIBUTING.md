@@ -4,7 +4,7 @@ Thank you for your interest.
 
 ## Current stage
 
-The project is in **Phase 2 (frozen)**: multi-node permissioned ledger sync + hash-chain consensus, hardened with required **join-token + API token + TLS**.
+The project is in **Phase 2 (frozen)**: multi-node permissioned ledger sync + **CometBFT** consensus, hardened with required **join-token + API token + TLS**.
 
 Do **not** start Phase 3 orchestration, CometBFT replacement, CRIU, or UI work against this freeze without an explicit new milestone decision in `docs/decisions.md`. Minimal Debian Bookworm node image packaging is an accepted **post-freeze** milestone (`image/`, `docs/node-image.md`, decision 2026-09-04).
 

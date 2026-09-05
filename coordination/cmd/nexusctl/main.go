@@ -46,7 +46,6 @@ func main() {
 		cmdPair(),
 		cmdLeave(),
 		cmdSync(),
-		cmdChain(),
 		cmdCometBFT(),
 	)
 
@@ -394,16 +393,6 @@ func cmdSync() *cobra.Command {
 		Short: "Push/pull signed ledger snapshots with all peers now",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return doJSON("POST", "/v1/cluster/sync", map[string]string{}, nil)
-		},
-	}
-}
-
-func cmdChain() *cobra.Command {
-	return &cobra.Command{
-		Use:   "chain",
-		Short: "Show consensus chain height, leader, and quorum",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return doGET("/v1/chain", nil)
 		},
 	}
 }

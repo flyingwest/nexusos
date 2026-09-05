@@ -7,21 +7,23 @@ import (
 
 // Consensus engine identifiers.
 const (
-	ConsensusEngineHashchain = "hashchain"
-	ConsensusEngineCometBFT  = "cometbft"
+	ConsensusEngineCometBFT = "cometbft"
 )
 
 // NormalizeConsensusEngine returns a canonical engine name or an error.
-// Empty defaults to cometbft. Hash-chain remains available for a deprecation window.
+// Empty defaults to cometbft. Only CometBFT is supported; the former
+// hash-chain engine has been removed.
 func NormalizeConsensusEngine(s string) (string, error) {
 	v := strings.ToLower(strings.TrimSpace(s))
 	if v == "" {
 		return ConsensusEngineCometBFT, nil
 	}
 	switch v {
-	case ConsensusEngineHashchain, ConsensusEngineCometBFT:
+	case ConsensusEngineCometBFT:
 		return v, nil
+	case "hashchain":
+		return "", fmt.Errorf("consensus engine %q was removed; CometBFT is the only engine (omit --consensus-engine or pass cometbft)", s)
 	default:
-		return "", fmt.Errorf("unknown consensus engine %q (want hashchain|cometbft)", s)
+		return "", fmt.Errorf("unknown consensus engine %q (want cometbft)", s)
 	}
 }

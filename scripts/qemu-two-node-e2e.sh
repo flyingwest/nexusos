@@ -292,9 +292,6 @@ ctl "$API_A" pair "$PEER_B_FROM_A"
 if [[ "${E2E_SKIP_WORKLOAD:-0}" == "1" ]]; then
   echo "==> E2E_SKIP_WORKLOAD=1: skipping pull/start; syncing empty-ish ledgers"
   ctl "$API_A" sync || true
-  echo "==> Chain status"
-  ctl "$API_A" chain || true
-  ctl "$API_B" chain || true
   echo "==> qemu-two-node-e2e: PASS (pair-only)"
   exit 0
 fi
@@ -335,10 +332,6 @@ if not ok:
 print("ledger assertion OK: images=%d containers=%d" % (len(images), len(containers)))
 PY
 fi
-
-echo "==> Chain status"
-ctl "$API_A" chain
-ctl "$API_B" chain
 
 echo "==> qemu-two-node-e2e: PASS"
 echo "    A: $API_A  advertise(guest)=$ADV_A"

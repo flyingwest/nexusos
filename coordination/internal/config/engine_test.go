@@ -9,9 +9,9 @@ func TestNormalizeConsensusEngine(t *testing.T) {
 		wantErr bool
 	}{
 		{"", ConsensusEngineCometBFT, false},
-		{"hashchain", ConsensusEngineHashchain, false},
 		{"CometBFT", ConsensusEngineCometBFT, false},
 		{"cometbft", ConsensusEngineCometBFT, false},
+		{"hashchain", "", true},
 		{"raft", "", true},
 	}
 	for _, tc := range cases {

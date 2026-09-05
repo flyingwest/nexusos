@@ -105,7 +105,7 @@ ResourceSpec {
 
 ## Main Transaction Types (initial set)
 
-On-chain today (CometBFT ABCI / hash-chain):
+On-chain today (CometBFT ABCI):
 
 - RegisterImage / VerifyImage
 - CreateContainer / UpdateContainer / RemoveContainer

@@ -58,7 +58,7 @@ Requires=containerd.service
 Type=simple
 User=root
 EnvironmentFile=-/etc/nexusos/coordinator.env
-ExecStart=/usr/local/bin/nexusos-coordinator --dev --mock=false --listen :8080 --data-dir /var/lib/nexusos --api-token ${NEXUS_API_TOKEN} --join-token ${NEXUS_JOIN_TOKEN} --advertise ${NEXUS_ADVERTISE} --consensus-engine=hashchain
+ExecStart=/usr/local/bin/nexusos-coordinator --dev --mock=false --listen :8080 --data-dir /var/lib/nexusos --api-token ${NEXUS_API_TOKEN} --join-token ${NEXUS_JOIN_TOKEN} --advertise ${NEXUS_ADVERTISE}
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536

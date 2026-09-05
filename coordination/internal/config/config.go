@@ -41,15 +41,12 @@ type Config struct {
 	SyncInterval     time.Duration `json:"sync_interval"`
 	HeartbeatTimeout time.Duration `json:"heartbeat_timeout"`
 
-	// Consensus orders image-integrity and placement txs into a hash chain.
-	// Heartbeats still use HTTP snapshot sync.
-	Consensus        bool          `json:"consensus"`
-	ConsensusTimeout time.Duration `json:"consensus_timeout"`
-	// ConsensusEngine selects the ordered-commit path: "cometbft" (default)
-	// or "hashchain" (deprecated; retained for a deprecation window).
+	// Consensus enables ordered commits for image-integrity and placement
+	// via CometBFT. Heartbeats still use HTTP snapshot sync.
+	Consensus bool `json:"consensus"`
+	// ConsensusEngine must be "cometbft" (the only supported engine).
 	ConsensusEngine string `json:"consensus_engine"`
-	// CometBFT listen addresses (only used when ConsensusEngine=cometbft).
-	// Defaults avoid clashing with the operator HTTP listener (:8080).
+	// CometBFT listen addresses. Defaults avoid clashing with the operator HTTP listener (:8080).
 	CometBFTRPC string `json:"cometbft_rpc"`
 	CometBFTP2P string `json:"cometbft_p2p"`
 	// CometBFTPeers is a CometBFT persistent_peers list (id@host:port,...).
@@ -57,9 +54,6 @@ type Config struct {
 	// CometBFTGenesisFrom is a seed coordinator URL; when set, fetch shared
 	// genesis (+ peer hint) via GET /v1/cometbft/bootstrap before starting CometBFT.
 	CometBFTGenesisFrom string `json:"cometbft_genesis_from"`
-	// ConsensusShadowHashchain requests optional hash-chain shadow alongside
-	// CometBFT. Full dual-write is deferred; the flag is accepted as a stub.
-	ConsensusShadowHashchain bool `json:"consensus_shadow_hashchain"`
 }
 
 // Default returns a sensible development configuration.
@@ -84,7 +78,6 @@ func Default() *Config {
 		SyncInterval:       10 * time.Second,
 		HeartbeatTimeout:   30 * time.Second,
 		Consensus:          true,
-		ConsensusTimeout:   5 * time.Second,
 		ConsensusEngine:    ConsensusEngineCometBFT,
 		CometBFTRPC:        "tcp://127.0.0.1:26657",
 		CometBFTP2P:        "tcp://127.0.0.1:26656",

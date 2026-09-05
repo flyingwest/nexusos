@@ -54,14 +54,14 @@ Deliverables:
 - [x] Permissioned hash-chain consensus for image integrity + placement (`ceil(2n/3)`, `--consensus`)
 - [x] Required join-token + API token + TLS (with `--dev` escape hatch)
 - [x] Mock two-node e2e script
-- [x] Embed CometBFT as default consensus engine (in-process node + mempool Submit + membership txs + dynamic validators + two-node e2e) — hash-chain deprecated but not deleted (`docs/cometbft-spike.md`)
+- [x] Embed CometBFT as default consensus engine (in-process node + mempool Submit + membership txs + dynamic validators + two-node e2e) (`docs/cometbft-spike.md`)
 - [x] Safe leave/eviction for CometBFT membership (LeaveMember → power 0, member tombstone, refuse last validator, HTTP/CLI)
 - [x] Shared-genesis bootstrap for multi-node CometBFT (`--cometbft-genesis-from`, bootstrap HTTP, nexusctl)
-- [ ] Remove hash-chain engine after deprecation window
+- [x] Remove hash-chain engine (CometBFT-only)
 
 **Exit criteria**: Two or more nodes agree on which containers are running where and which images have been verified. ✅ Met for HTTP sync (eventual) and for consensus commits when a quorum is present. Security bar (tokens+TLS) ✅. Full BFT finality remains deferred — see `docs/phase2-freeze.md`.
 
-**CometBFT (2026-09-05)**: **Default** engine under `coordination/internal/consensus/cometbft`. Mempool Submit (strict), membership as consensus txs (`JoinMember`/`LeaveMember`), dynamic validators, **safe leave/eviction**, **shared-genesis bootstrap** (`--cometbft-genesis-from` / `GET /v1/cometbft/bootstrap`), identity-seeded FilePV, `--cometbft-peers`, join/leave e2e. Hash-chain via `--consensus-engine=hashchain` (deprecated warning); `--consensus-shadow-hashchain` stub. Design: `docs/cometbft-spike.md`.
+**CometBFT (2026-09-05)**: **Sole** consensus engine under `coordination/internal/consensus/cometbft`. Mempool Submit (strict), membership as consensus txs (`JoinMember`/`LeaveMember`), dynamic validators, **safe leave/eviction**, **shared-genesis bootstrap** (`--cometbft-genesis-from` / `GET /v1/cometbft/bootstrap`), identity-seeded FilePV, `--cometbft-peers`, join/leave e2e. Permissioned hash-chain engine **removed**. Design: `docs/cometbft-spike.md`.
 
 ---
 

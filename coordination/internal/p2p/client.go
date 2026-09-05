@@ -56,7 +56,7 @@ func (c *Client) Sync(ctx context.Context, base string, req SyncMessage) (SyncMe
 	return out, nil
 }
 
-// PostJSON POSTs JSON to a peer path. Consensus uses this for propose/tx/commit.
+// PostJSON POSTs JSON to a peer path (pair/sync and related peer RPCs).
 func (c *Client) PostJSON(ctx context.Context, base, path string, in, out any) error {
 	return c.post(ctx, base, path, in, out)
 }
