@@ -250,6 +250,124 @@ func ApplyTx(st *State, tx Tx) error {
 		st.Tombstones[WorkloadTomb(p.WorkloadID)] = tx.Timestamp
 		return nil
 
+
+	case MsgProposeMigration:
+		var p ProposeMigrationPayload
+		if err := json.Unmarshal(tx.Payload, &p); err != nil {
+			return fmt.Errorf("propose migration payload: %w", err)
+		}
+		if p.MigrationID == "" {
+			return fmt.Errorf("migration_id is required")
+		}
+		if p.ContainerID == "" {
+			return fmt.Errorf("container_id is required")
+		}
+		if p.FromNode == "" || p.ToNode == "" {
+			return fmt.Errorf("from_node and to_node are required")
+		}
+		if p.FromNode == p.ToNode {
+			return fmt.Errorf("from_node and to_node must differ")
+		}
+		ctr, ok := st.Containers[p.ContainerID]
+		if !ok {
+			return fmt.Errorf("container %s not found", p.ContainerID)
+		}
+		if ctr.CurrentNode != "" && ctr.CurrentNode != p.FromNode {
+			return fmt.Errorf("container %s is on %s, not from_node %s", p.ContainerID, ctr.CurrentNode, p.FromNode)
+		}
+		if existing, ok := st.Migrations[p.MigrationID]; ok {
+			if existing.Status == MigrationSuccess || existing.Status == MigrationFailed {
+				return fmt.Errorf("migration %s already finished (%s)", p.MigrationID, existing.Status)
+			}
+			// Idempotent re-propose of same in-flight migration.
+			if existing.ContainerID == p.ContainerID && existing.FromNode == p.FromNode && existing.ToNode == p.ToNode {
+				return nil
+			}
+			return fmt.Errorf("migration %s already exists", p.MigrationID)
+		}
+		for _, m := range st.Migrations {
+			if m.ContainerID == p.ContainerID && (m.Status == MigrationPending || m.Status == MigrationInProgress) {
+				return fmt.Errorf("container %s already has in-flight migration %s", p.ContainerID, m.MigrationID)
+			}
+		}
+		st.Migrations[p.MigrationID] = MigrationRecord{
+			MigrationID: p.MigrationID,
+			ContainerID: p.ContainerID,
+			FromNode:    p.FromNode,
+			ToNode:      p.ToNode,
+			Status:      MigrationInProgress,
+			StartedAt:   tx.Timestamp,
+		}
+		ctr.Desired = DesiredMigrating
+		ctr.UpdatedAt = tx.Timestamp
+		st.Containers[p.ContainerID] = ctr
+		delete(st.Tombstones, MigrationTomb(p.MigrationID))
+		return nil
+
+	case MsgCompleteMigration:
+		var p CompleteMigrationPayload
+		if err := json.Unmarshal(tx.Payload, &p); err != nil {
+			return fmt.Errorf("complete migration payload: %w", err)
+		}
+		if p.MigrationID == "" {
+			return fmt.Errorf("migration_id is required")
+		}
+		mig, ok := st.Migrations[p.MigrationID]
+		if !ok {
+			return fmt.Errorf("migration %s not found", p.MigrationID)
+		}
+		if mig.Status == MigrationSuccess {
+			return nil // idempotent
+		}
+		if mig.Status != MigrationInProgress && mig.Status != MigrationPending {
+			return fmt.Errorf("migration %s is %s, cannot complete", p.MigrationID, mig.Status)
+		}
+		ctr, ok := st.Containers[mig.ContainerID]
+		if !ok {
+			return fmt.Errorf("container %s not found for migration", mig.ContainerID)
+		}
+		fin := tx.Timestamp
+		mig.Status = MigrationSuccess
+		mig.CheckpointHash = p.CheckpointHash
+		mig.FinishedAt = &fin
+		st.Migrations[p.MigrationID] = mig
+		ctr.CurrentNode = mig.ToNode
+		ctr.Desired = DesiredRunning
+		ctr.UpdatedAt = tx.Timestamp
+		st.Containers[mig.ContainerID] = ctr
+		return nil
+
+	case MsgFailMigration:
+		var p FailMigrationPayload
+		if err := json.Unmarshal(tx.Payload, &p); err != nil {
+			return fmt.Errorf("fail migration payload: %w", err)
+		}
+		if p.MigrationID == "" {
+			return fmt.Errorf("migration_id is required")
+		}
+		mig, ok := st.Migrations[p.MigrationID]
+		if !ok {
+			return fmt.Errorf("migration %s not found", p.MigrationID)
+		}
+		if mig.Status == MigrationFailed {
+			return nil // idempotent
+		}
+		if mig.Status == MigrationSuccess {
+			return fmt.Errorf("migration %s already succeeded", p.MigrationID)
+		}
+		fin := tx.Timestamp
+		mig.Status = MigrationFailed
+		mig.FinishedAt = &fin
+		st.Migrations[p.MigrationID] = mig
+		if ctr, ok := st.Containers[mig.ContainerID]; ok {
+			// Rollback basics: keep placement on from_node, clear Migrating.
+			ctr.CurrentNode = mig.FromNode
+			ctr.Desired = DesiredRunning
+			ctr.UpdatedAt = tx.Timestamp
+			st.Containers[mig.ContainerID] = ctr
+		}
+		return nil
+
 	default:
 		return fmt.Errorf("unsupported tx type %s", tx.Type)
 	}

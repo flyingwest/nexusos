@@ -18,6 +18,7 @@ const (
 	MsgRemoveContainer   MessageType = "RemoveContainer"
 	MsgProposeMigration  MessageType = "ProposeMigration"
 	MsgCompleteMigration MessageType = "CompleteMigration"
+	MsgFailMigration     MessageType = "FailMigration"
 	MsgJoinMember        MessageType = "JoinMember"
 	MsgLeaveMember       MessageType = "LeaveMember"
 	MsgCreateWorkload    MessageType = "CreateWorkload"
@@ -112,6 +113,22 @@ type WorkloadRecord struct {
 const (
 	StrategyRecreate      = "Recreate"
 	StrategyRollingUpdate = "RollingUpdate"
+)
+
+
+// Container desired states.
+const (
+	DesiredRunning   = "Running"
+	DesiredStopped   = "Stopped"
+	DesiredMigrating = "Migrating"
+)
+
+// Migration status values.
+const (
+	MigrationPending    = "Pending"
+	MigrationInProgress = "InProgress"
+	MigrationSuccess    = "Success"
+	MigrationFailed     = "Failed"
 )
 
 // MigrationRecord tracks a coordinated move.

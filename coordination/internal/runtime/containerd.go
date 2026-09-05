@@ -2,7 +2,13 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -285,3 +291,117 @@ func (c *ContainerdRuntime) Close() error {
 
 // Ensure specs import is used (for future resource limits)
 var _ = specs.LinuxResources{}
+
+// SupportsCheckpointRestore reports whether the host has a usable CRIU binary.
+// Real containerd+CRIU dump/restore is a host requirement; when criu is absent
+// this returns false and Checkpoint/Restore return ErrCheckpointUnsupported.
+func (c *ContainerdRuntime) SupportsCheckpointRestore() bool {
+	return criuAvailable()
+}
+
+func criuAvailable() bool {
+	path, err := execLookPath("criu")
+	if err != nil {
+		return false
+	}
+	// `criu check` exits 0 when kernel features are adequate.
+	cmd := execCommand(path, "check")
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	return true
+}
+
+// execLookPath / execCommand are vars so tests can stub without spawning.
+var execLookPath = exec.LookPath
+var execCommand = func(name string, args ...string) *exec.Cmd {
+	return exec.Command(name, args...)
+}
+
+// Checkpoint attempts a containerd checkpoint when CRIU is available.
+// Full CRIU dump orchestration is environment-heavy; this hook documents the
+// path and refuses cleanly when criu is missing.
+func (c *ContainerdRuntime) Checkpoint(ctx context.Context, id string, destDir string) (*CheckpointArtifact, error) {
+	if !c.SupportsCheckpointRestore() {
+		return nil, ErrCheckpointUnsupported
+	}
+	ctx = c.withNS(ctx)
+	ctr, err := c.client.LoadContainer(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("container %q: %w", id, err)
+	}
+	info, err := c.containerInfo(ctx, ctr)
+	if err != nil {
+		return nil, err
+	}
+	task, err := ctr.Task(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("task for %q: %w", id, err)
+	}
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return nil, err
+	}
+	// containerd Checkpoint API: create an image from the running task.
+	// When the runtime lacks criu plugin support this returns an error.
+	img, err := task.Checkpoint(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("containerd checkpoint (requires criu): %w", err)
+	}
+	meta := CheckpointMeta{
+		ContainerID: info.ID,
+		Name:        info.Name,
+		ImageRef:    info.ImageRef,
+		ImageDigest: info.ImageDigest,
+		Labels:      info.Labels,
+		State:       info.State,
+	}
+	metaPath := filepath.Join(destDir, "nexusos-checkpoint.json")
+	raw, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(metaPath, raw, 0o644); err != nil {
+		return nil, err
+	}
+	ref := ""
+	if img != nil {
+		ref = img.Name()
+	}
+	_ = os.WriteFile(filepath.Join(destDir, "containerd-checkpoint.ref"), []byte(ref), 0o644)
+	sum := sha256.Sum256(raw)
+	return &CheckpointArtifact{
+		Hash: hex.EncodeToString(sum[:]),
+		Dir:  destDir,
+		Meta: meta,
+	}, nil
+}
+
+// Restore from a containerd/CRIU checkpoint. Stub when criu is unavailable.
+func (c *ContainerdRuntime) Restore(ctx context.Context, opts RestoreOptions) (*ContainerInfo, error) {
+	if !c.SupportsCheckpointRestore() {
+		return nil, ErrCheckpointUnsupported
+	}
+	// Preferred path for this increment: restore by starting from checkpoint meta
+	// image digest (cold) when a full CRIU image restore is not wired.
+	meta := opts.Meta
+	if opts.CheckpointDir != "" {
+		b, err := os.ReadFile(filepath.Join(opts.CheckpointDir, "nexusos-checkpoint.json"))
+		if err == nil {
+			_ = json.Unmarshal(b, &meta)
+		}
+	}
+	ref := meta.ImageRef
+	if ref == "" {
+		ref = meta.ImageDigest
+	}
+	if ref == "" {
+		return nil, fmt.Errorf("restore: missing image in checkpoint meta (full CRIU image restore not wired)")
+	}
+	return c.Start(ctx, StartOptions{
+		ID:          opts.ID,
+		Name:        meta.Name,
+		ImageRef:    ref,
+		ImageDigest: meta.ImageDigest,
+		Labels:      meta.Labels,
+	})
+}

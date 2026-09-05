@@ -306,6 +306,22 @@ func main() {
 		cmtHome = filepath.Join(cfg.DataDir, "cometbft")
 		cmtP2P = cfg.CometBFTP2P
 	}
+	var migrator *orchestrate.MigrationController
+	if txSubmitter != nil {
+		migrator = &orchestrate.MigrationController{
+			KP:          kp,
+			Ledger:      ledgerStore,
+			Runtime:     rt,
+			Submit:      txSubmitter,
+			NodeID:      kp.NodeID,
+			Advertise:   cfg.AdvertiseURL,
+			ArtifactDir: filepath.Join(cfg.DataDir, "migrations"),
+			HTTP:        peerClient.HTTP,
+			APIToken:    cfg.APIToken,
+		}
+		log.Println("Migration controller ready (Phase 4 cold / CRIU-or-mock)")
+	}
+
 	api := httpapi.New(httpapi.Options{
 		Addr:               cfg.ListenAddr,
 		APIToken:           cfg.APIToken,
@@ -320,6 +336,7 @@ func main() {
 		Members:            members,
 		Engine:             engine,
 		TxSubmitter:        txSubmitter,
+		Migrator:           migrator,
 		JoinToken:          cfg.JoinToken,
 		CometBFTHome:       cmtHome,
 		CometBFTP2P:        cmtP2P,

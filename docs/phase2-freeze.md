@@ -24,7 +24,7 @@
 - [x] Embed CometBFT in place of the permissioned hash-chain proposer (hash-chain removed; see `docs/cometbft-spike.md`)
 - [ ] Minimal Linux / OS node image packaging — **started post-freeze** (see `docs/node-image.md`; not part of the freeze itself)
 - [ ] Phase 3 native orchestration (workloads, scheduler, reconciler)
-- [ ] CRIU cold migration
+- [x] CRIU cold migration (Phase 4; mock+API+ledger; real CRIU host hook)
 - [ ] Operator UI
 - [ ] Full mutual TLS (mTLS) between peers
 - [ ] Permissionless membership path

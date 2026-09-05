@@ -78,6 +78,27 @@ type DeleteWorkloadPayload struct {
 	WorkloadID string `json:"workload_id"`
 }
 
+// ProposeMigrationPayload starts a cold migration (ledger intent).
+type ProposeMigrationPayload struct {
+	MigrationID string `json:"migration_id"`
+	ContainerID string `json:"container_id"`
+	FromNode    string `json:"from_node"`
+	ToNode      string `json:"to_node"`
+}
+
+// CompleteMigrationPayload finalizes a successful cold migration.
+type CompleteMigrationPayload struct {
+	MigrationID    string `json:"migration_id"`
+	CheckpointHash string `json:"checkpoint_hash,omitempty"`
+}
+
+// FailMigrationPayload aborts a migration and rolls placement back to from_node.
+type FailMigrationPayload struct {
+	MigrationID string `json:"migration_id"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+
 func txSignPayload(tx Tx) string {
 	return fmt.Sprintf("%s\n%s\n%s\n%d\n%s",
 		domainTx, tx.Type, tx.NodeID, tx.Timestamp.UTC().UnixMilli(), string(tx.Payload))

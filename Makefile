@@ -1,4 +1,4 @@
-.PHONY: build run test tidy clean install coordinator nexusctl e2e e2e-workload e2e-workload-multinode image image-devsmoke qemu-smoke qemu-e2e test-provision
+.PHONY: build run test tidy clean install coordinator nexusctl e2e e2e-workload e2e-workload-multinode e2e-migration image image-devsmoke qemu-smoke qemu-e2e test-provision
 
 COORD_DIR := coordination
 
@@ -28,6 +28,9 @@ e2e-workload: build
 
 e2e-workload-multinode: build
 	./scripts/e2e-workload-multinode.sh
+
+e2e-migration: build
+	./scripts/e2e-migration-multinode.sh
 
 tidy:
 	cd $(COORD_DIR) && go mod tidy

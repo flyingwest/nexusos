@@ -75,6 +75,9 @@ func (r *Reconciler) Once(ctx context.Context) error {
 			if c.WorkloadID == "" {
 				continue
 			}
+			if SkipMigrating(c, st) {
+				continue
+			}
 			wl, ok := st.Workloads[c.WorkloadID]
 			remove := !ok
 			if ok && c.ReplicaIndex != nil && *c.ReplicaIndex >= wl.Replicas {
@@ -111,6 +114,9 @@ func (r *Reconciler) ensurePlacements(ctx context.Context, st ledger.State, wl l
 	var creates, updates []pendingPlacement
 	for _, p := range placements {
 		existing, ok := st.Containers[p.ContainerID]
+		if ok && SkipMigrating(existing, st) {
+			continue // Phase 4: do not fight in-flight cold migration
+		}
 		if ok && existing.CurrentNode == p.NodeID && existing.Desired == "Running" &&
 			existing.ImageDigest == wl.ImageDigest && existing.WorkloadID == wl.WorkloadID {
 			continue
