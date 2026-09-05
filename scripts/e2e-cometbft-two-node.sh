@@ -7,7 +7,8 @@
 #   TestTwoNodeLeaveMember — LeaveMember removes peer from validators + ledger
 #
 # Coordinator harness (updated flow):
-#   1) Start A with --cometbft; copy genesis; start B with --cometbft-peers.
+#   1) Start A with --cometbft; B fetches shared genesis via --cometbft-genesis-from
+#      (GET /v1/cometbft/bootstrap; peer auto-filled when --cometbft-peers omitted).
 #   2) Pair over HTTP after both are on the same chain (JoinMember via consensus).
 #   3) Submit image/placement on A; assert B ledger (sync-interval=1h).
 #
@@ -97,22 +98,11 @@ for i in $(seq 1 40); do
 done
 [[ -f "$GEN_A" ]] || { echo "A genesis missing"; cat "$LOG_A"; exit 1; }
 
-NODE_ID_A=""
-for i in $(seq 1 40); do
-  if [[ -f "$DIR_A/cometbft/p2p-node-id.txt" ]]; then
-    NODE_ID_A="$(tr -d '[:space:]' < "$DIR_A/cometbft/p2p-node-id.txt")"
-    [[ -n "$NODE_ID_A" ]] && break
-  fi
-  sleep 0.1
-done
-[[ -n "$NODE_ID_A" ]] || { echo "missing A p2p node id"; cat "$LOG_A"; exit 1; }
-P2P_HOSTPORT_A="$(echo "$CMT_P2P_A" | sed 's#^tcp://##')"
-PEER_A="${NODE_ID_A}@${P2P_HOSTPORT_A}"
-echo "    A peer=$PEER_A"
+echo "==> Verify A exposes CometBFT bootstrap (join-token)"
+BOOT="$(ctl "$API_A" --join-token "$JOIN_TOKEN" cometbft bootstrap)"
+echo "$BOOT" | python3 -c "import json,sys; j=json.load(sys.stdin); assert j.get('genesis') and j.get('peer'), j; print('    bootstrap peer=', j['peer'])"
 
-echo "==> Start B with shared genesis + persistent peer"
-mkdir -p "$DIR_B/cometbft/config"
-cp "$GEN_A" "$DIR_B/cometbft/config/genesis.json"
+echo "==> Start B with --cometbft-genesis-from (no manual genesis copy)"
 "$COORD" --dev --mock --cometbft \
   --listen ":${PORT_B}" \
   --data-dir "$DIR_B" \
@@ -122,10 +112,22 @@ cp "$GEN_A" "$DIR_B/cometbft/config/genesis.json"
   --sync-interval 1h \
   --cometbft-rpc "$CMT_RPC_B" \
   --cometbft-p2p "$CMT_P2P_B" \
-  --cometbft-peers "$PEER_A" \
+  --cometbft-genesis-from "$API_A" \
   >"$LOG_B" 2>&1 &
 PID_B=$!
 wait_health "$API_B" "$PID_B" "$LOG_B"
+
+# Confirm B installed shared genesis (not a fresh local one).
+GEN_B="$DIR_B/cometbft/config/genesis.json"
+[[ -f "$GEN_B" ]] || { echo "B genesis missing"; cat "$LOG_B"; exit 1; }
+python3 - "$GEN_A" "$GEN_B" <<'PYCMP'
+import json, pathlib, sys
+a = json.loads(pathlib.Path(sys.argv[1]).read_text())
+b = json.loads(pathlib.Path(sys.argv[2]).read_text())
+if a != b:
+    raise SystemExit("FAIL: B genesis does not match A (bootstrap path)")
+print("    B genesis matches A (via --cometbft-genesis-from)")
+PYCMP
 
 echo "==> Waiting for B CometBFT height >= 1"
 for i in $(seq 1 80); do
@@ -253,4 +255,4 @@ for label, p in [("A", "$DIR_A/cometbft/abci-meta.json"), ("B", "$DIR_B/cometbft
     print(label, json.loads(path.read_text()) if path.exists() else "missing")
 PY
 
-echo "==> e2e-cometbft-two-node: PASS (Go tests + coordinator harness, pair-after-start + leave)"
+echo "==> e2e-cometbft-two-node: PASS (Go tests + coordinator harness, genesis-from + pair-after-start + leave)"

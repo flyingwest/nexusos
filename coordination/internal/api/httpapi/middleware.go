@@ -35,7 +35,8 @@ func withAuth(token string, next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Health and node-to-node protocol are authenticated by signatures, not the operator token.
-		if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/v1/net/") {
+		// CometBFT bootstrap may authenticate with join-token (handler checks).
+		if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/v1/net/") || r.URL.Path == "/v1/cometbft/bootstrap" {
 			next.ServeHTTP(w, r)
 			return
 		}

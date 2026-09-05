@@ -1,6 +1,6 @@
 # CometBFT embed (feature-flagged)
 
-**Status**: **default** consensus engine — in-process node + mempool Submit + membership txs + dynamic validators + safe leave/eviction + two-node e2e  
+**Status**: **default** consensus engine — in-process node + mempool Submit + membership txs + dynamic validators + safe leave/eviction + shared-genesis bootstrap + two-node e2e  
 **Date**: 2026-09-05 (updated)  
 **Module**: `github.com/cometbft/cometbft v0.38.26` (ABCI 2.0 line; Go 1.22+). `coordination/go.mod` uses `go 1.22.11` (+ toolchain).
 
@@ -103,10 +103,33 @@ Lab/e2e: start CometBFT (shared genesis + peers), **then** pair — pair-before-
 |---------|---------------|---------------------|
 | Who may sign ledger txs | `membership.Store` (+ join-token pairing) | Same: ABCI rejects non-members when the set is non-empty |
 | Who votes / proposes | Hash-chain: member IDs as validators, `ceil(2n/3)` | Genesis = local FilePV (identity-seeded when new). Dynamic set via FinalizeBlock from membership |
-| Peer discovery | `--peers`, pair HTTP, advertise URL | CometBFT: `--cometbft-peers` (`id@host:port`,…). Multi-node needs **shared genesis** (copy A's `config/genesis.json` to B) |
+| Peer discovery | `--peers`, pair HTTP, advertise URL | CometBFT: `--cometbft-peers` (`id@host:port`,…). Multi-node needs **shared genesis** via `--cometbft-genesis-from <seed-url>` or `nexusctl cometbft fetch-genesis` (manual copy still works) |
 | Operator API auth | API token + TLS | Unchanged |
 
 **Join-token** does not become a CometBFT secret. It continues to authorize **membership** changes.
+
+
+## Shared genesis bootstrap (multi-node)
+
+Joining nodes must share the seed's `genesis.json` (CometBFT chain ID + initial validators). Operators no longer need to copy files by hand:
+
+| Path | Behavior |
+|------|----------|
+| `GET /v1/cometbft/bootstrap` | Returns `{genesis, peer, p2p_node_id, p2p_listen, chain_id}`. Auth: **API bearer** **or** `X-Nexus-Join-Token` matching the cluster join-token. |
+| `--cometbft-genesis-from <seed-url>` | Before starting CometBFT, fetch bootstrap and install `<data-dir>/cometbft/config/genesis.json` if missing. If `--cometbft-peers` is empty, use the seed `peer` hint. |
+| `nexusctl cometbft bootstrap` | Print bootstrap JSON from a running seed. |
+| `nexusctl cometbft fetch-genesis --data-dir DIR` | Write genesis into `DIR` offline; prints suggested `--cometbft-peers`. |
+
+Lab/e2e (`scripts/e2e-cometbft-two-node.sh`) starts B with `--cometbft-genesis-from` (no `cp` of genesis).
+
+## Dual-run / shadow (stub)
+
+`--consensus-shadow-hashchain` is accepted when the engine is CometBFT. **This release logs intent only** — CometBFT remains the sole commit path; full dual-write + compare against the deprecated hash-chain is deferred (hash-chain removal is step 3; richer dual-run can land in that window). Checklist for a later PR:
+
+1. Keep `--consensus-engine=cometbft` as the write path (strict Submit).
+2. Optionally run hash-chain Propose/Commit in parallel **without** applying a second ledger mutation (compare digests/heights only).
+3. Fail closed on divergence in CI/lab; never silently prefer hash-chain over CometBFT.
+4. Remove the stub flag once dual-run ships or when hash-chain is deleted.
 
 ## How to enable
 
@@ -128,10 +151,15 @@ CometBFT (single-node in-process):
 # optional: --cometbft-rpc tcp://127.0.0.1:26657 --cometbft-p2p tcp://127.0.0.1:26656
 ```
 
-Two-node CometBFT (mock e2e harness):
+Two-node CometBFT (mock e2e harness — uses `--cometbft-genesis-from`):
 
 ```bash
 ./scripts/e2e-cometbft-two-node.sh
+# Manual join sketch (seed already running on :8080):
+./bin/coordinator --dev --mock --cometbft \
+  --listen :8081 --data-dir /tmp/nexus-b \
+  --cometbft-rpc tcp://127.0.0.1:28657 --cometbft-p2p tcp://127.0.0.1:28656 \
+  --cometbft-genesis-from https://127.0.0.1:8080
 # Go consensus proof (no HTTP coordinator):
 cd coordination && go test ./internal/consensus/cometbft/ \
   -run TestTwoNodeConsensusAppliesTxOnPeer -count=1 -timeout 3m
@@ -153,12 +181,13 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 5. ~~**Membership as consensus txs** (`JoinMember` / `LeaveMember`)~~ ✅
 6. ~~**Cutover**: default `--consensus-engine=cometbft`~~ ✅ (this release)
 7. **Deprecation window**: `--consensus-engine=hashchain` still works; logs a clear warning. **Do not delete** `internal/consensus` hash-chain code yet.
-8. **Later**: remove hash-chain engine after the deprecation window.
+8. ~~**Shared-genesis bootstrap** (HTTP + `--cometbft-genesis-from`)~~ ✅
+9. **Later**: optional full dual-run / remove hash-chain after the deprecation window.
 
 ## Known risks / deferred
 
 - **Pre-existing FilePV ≠ identity**: dynamic sync skipped until re-seed; documented above.
-- **Shared genesis required** for multi-node: B must copy A's `genesis.json` before start (harness does this). No automatic genesis gossip yet.
+- **Shared genesis required** for multi-node: use `--cometbft-genesis-from` / bootstrap HTTP (or manual copy). Not full P2P genesis gossip — seed HTTP after join-token/API auth.
 - **HTTP `--peers` ≠ CometBFT P2P**: still separate planes; heartbeats remain on HTTP sync.
 - **AppHash**: SHA-256 of consensus fields only (`images` / `containers` / `migrations` / `members` / `tombstones`). Member leave stamps `member:<id>` tombstones. **Nodes/heartbeats are excluded** so HTTP sync cannot diverge CometBFT peers. Not a Merkle tree — fine for permissioned ops, not for light clients.
 - **Dependency weight**: Full `node` import pulls DB/P2P/RPC stacks; scoped behind the engine flag at runtime.
@@ -176,3 +205,5 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 - [x] Safe leave/eviction (`LeaveMember` last-validator refuse + member tombstone + `TestTwoNodeLeaveMember`)
 - [x] Scripted harness `scripts/e2e-cometbft-two-node.sh` (pair-after-start) + run docs
 - [x] Default engine is `cometbft`; hash-chain selectable + deprecation warning
+- [x] Shared-genesis bootstrap (`GET /v1/cometbft/bootstrap`, `--cometbft-genesis-from`, nexusctl helpers); e2e uses genesis-from
+- [x] `--consensus-shadow-hashchain` stub + dual-run checklist (full dual-write deferred)

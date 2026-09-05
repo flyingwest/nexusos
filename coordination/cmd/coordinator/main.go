@@ -45,6 +45,8 @@ func main() {
 	cometbftRPC := flag.String("cometbft-rpc", "", "CometBFT RPC listen (default tcp://127.0.0.1:26657)")
 	cometbftP2P := flag.String("cometbft-p2p", "", "CometBFT P2P listen (default tcp://127.0.0.1:26656)")
 	cometbftPeers := flag.String("cometbft-peers", "", "CometBFT persistent_peers (id@host:port,...)")
+	cometbftGenesisFrom := flag.String("cometbft-genesis-from", "", "fetch shared CometBFT genesis (+ peer hint) from seed coordinator URL before start")
+	shadowHashchain := flag.Bool("consensus-shadow-hashchain", false, "stub: log shadow dual-run intent alongside CometBFT (full dual-write deferred; see docs/cometbft-spike.md)")
 	dev := flag.Bool("dev", false, "insecure local experiments: allow empty tokens and auto self-signed TLS")
 	insecureDev := flag.Bool("insecure-dev", false, "alias for --dev")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (required unless --dev)")
@@ -105,6 +107,8 @@ func main() {
 	if *cometbftPeers != "" {
 		cfg.CometBFTPeers = *cometbftPeers
 	}
+	cfg.CometBFTGenesisFrom = strings.TrimSpace(*cometbftGenesisFrom)
+	cfg.ConsensusShadowHashchain = *shadowHashchain
 	cfg.Dev = *dev || *insecureDev
 	cfg.TLSCertFile = *tlsCert
 	cfg.TLSKeyFile = *tlsKey
@@ -171,6 +175,12 @@ func main() {
 	fmt.Printf("HB timeout  : %s\n", cfg.HeartbeatTimeout)
 	fmt.Printf("Consensus   : %v\n", cfg.Consensus)
 	fmt.Printf("Cons. engine: %s\n", cfg.ConsensusEngine)
+	if cfg.ConsensusShadowHashchain {
+		fmt.Println("Shadow HC  : requested (stub — dual-write not active; see docs/cometbft-spike.md)")
+	}
+	if cfg.CometBFTGenesisFrom != "" {
+		fmt.Printf("CMT genesis : fetch from %s\n", cfg.CometBFTGenesisFrom)
+	}
 	fmt.Println()
 
 	store, err := state.NewStore(cfg.DataDir, kp.NodeID)
@@ -244,9 +254,34 @@ func main() {
 
 	var ceng *consensus.Engine
 	var cmtNode *cometbft.Node
+	if cfg.ConsensusShadowHashchain {
+		if cfg.ConsensusEngine != config.ConsensusEngineCometBFT {
+			log.Printf("WARNING: --consensus-shadow-hashchain is only meaningful with --consensus-engine=cometbft; ignoring")
+		} else {
+			log.Printf("WARNING: --consensus-shadow-hashchain is a stub: CometBFT remains the commit path; full hash-chain dual-write/compare is deferred (step 3 follow-up). Checklist: docs/cometbft-spike.md#dual-run--shadow")
+		}
+	}
+
 	if cfg.Consensus && cfg.ConsensusEngine == config.ConsensusEngineCometBFT {
 		cmtApp := cometbft.NewApp(ledgerStore, members)
 		home := filepath.Join(cfg.DataDir, "cometbft")
+		if cfg.CometBFTGenesisFrom != "" {
+			peer, err := cometbft.FetchAndInstallGenesis(context.Background(), home, cometbft.FetchBootstrapOptions{
+				SeedURL:     cfg.CometBFTGenesisFrom,
+				JoinToken:   cfg.JoinToken,
+				APIToken:    cfg.APIToken,
+				TLSInsecure: cfg.TLSInsecureSkipVerify || cfg.Dev,
+			})
+			if err != nil {
+				log.Fatalf("cometbft genesis from %s: %v", cfg.CometBFTGenesisFrom, err)
+			}
+			if cfg.CometBFTPeers == "" && peer != "" {
+				cfg.CometBFTPeers = peer
+				log.Printf("CometBFT persistent peer from seed bootstrap: %s", peer)
+			} else {
+				log.Printf("CometBFT shared genesis installed from %s", cfg.CometBFTGenesisFrom)
+			}
+		}
 		var err error
 		cmtNode, err = cometbft.StartNode(cmtApp, cometbft.NodeOptions{
 			HomeDir:         home,
@@ -300,6 +335,12 @@ func main() {
 	} else if ceng != nil {
 		engine.MembershipTx = ceng
 	}
+	cmtHome := ""
+	cmtP2P := ""
+	if cmtNode != nil {
+		cmtHome = filepath.Join(cfg.DataDir, "cometbft")
+		cmtP2P = cfg.CometBFTP2P
+	}
 	api := httpapi.New(httpapi.Options{
 		Addr:               cfg.ListenAddr,
 		APIToken:           cfg.APIToken,
@@ -315,6 +356,9 @@ func main() {
 		Engine:             engine,
 		Consensus:          ceng,
 		TxSubmitter:        txSubmitter,
+		JoinToken:          cfg.JoinToken,
+		CometBFTHome:       cmtHome,
+		CometBFTP2P:        cmtP2P,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

@@ -52,3 +52,17 @@ func TestWithAuthDisabledWhenEmpty(t *testing.T) {
 		t.Fatalf("empty token should disable auth, got %d", rr.Code)
 	}
 }
+
+func TestWithAuthBypassesCometBFTBootstrap(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/cometbft/bootstrap", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := withAuth("secret", mux)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/cometbft/bootstrap", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("bootstrap should bypass API middleware (handler auth), got %d", rr.Code)
+	}
+}
