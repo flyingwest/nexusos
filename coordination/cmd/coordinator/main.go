@@ -44,6 +44,7 @@ func main() {
 	cometbftFlag := flag.Bool("cometbft", false, "shorthand for --consensus-engine=cometbft (not default)")
 	cometbftRPC := flag.String("cometbft-rpc", "", "CometBFT RPC listen (default tcp://127.0.0.1:26657)")
 	cometbftP2P := flag.String("cometbft-p2p", "", "CometBFT P2P listen (default tcp://127.0.0.1:26656)")
+	cometbftPeers := flag.String("cometbft-peers", "", "CometBFT persistent_peers (id@host:port,...)")
 	dev := flag.Bool("dev", false, "insecure local experiments: allow empty tokens and auto self-signed TLS")
 	insecureDev := flag.Bool("insecure-dev", false, "alias for --dev")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (required unless --dev)")
@@ -97,6 +98,9 @@ func main() {
 	}
 	if *cometbftP2P != "" {
 		cfg.CometBFTP2P = *cometbftP2P
+	}
+	if *cometbftPeers != "" {
+		cfg.CometBFTPeers = *cometbftPeers
 	}
 	cfg.Dev = *dev || *insecureDev
 	cfg.TLSCertFile = *tlsCert
@@ -230,17 +234,19 @@ func main() {
 		home := filepath.Join(cfg.DataDir, "cometbft")
 		var err error
 		cmtNode, err = cometbft.StartNode(cmtApp, cometbft.NodeOptions{
-			HomeDir:   home,
-			RPCListen: cfg.CometBFTRPC,
-			P2PListen: cfg.CometBFTP2P,
-			Moniker:   truncateID(kp.NodeID, 12),
-			Members:   members,
+			HomeDir:         home,
+			RPCListen:       cfg.CometBFTRPC,
+			P2PListen:       cfg.CometBFTP2P,
+			PersistentPeers: cfg.CometBFTPeers,
+			Moniker:         truncateID(kp.NodeID, 12),
+			Members:         members,
+			IdentityPriv:    kp.PrivateKey,
 		})
 		if err != nil {
 			log.Fatalf("cometbft node: %v", err)
 		}
-		log.Printf("CometBFT node started (engine=%s, home=%s, rpc=%s, p2p=%s, height=%d); membership→validator snapshot under home; see docs/cometbft-spike.md",
-			cfg.ConsensusEngine, home, cmtNode.RPCAddress(), cmtNode.P2PAddress(), cmtApp.Height())
+		log.Printf("CometBFT node started (engine=%s, home=%s, rpc=%s, p2p=%s, node_id=%s, height=%d); dynamic validators via FinalizeBlock; see docs/cometbft-spike.md",
+			cfg.ConsensusEngine, home, cmtNode.RPCAddress(), cmtNode.P2PAddress(), cmtNode.NodeID(), cmtApp.Height())
 	} else if cfg.Consensus {
 		chain, err := consensus.NewChain(cfg.DataDir)
 		if err != nil {

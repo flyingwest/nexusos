@@ -52,6 +52,8 @@ type Config struct {
 	// Defaults avoid clashing with the operator HTTP listener (:8080).
 	CometBFTRPC string `json:"cometbft_rpc"`
 	CometBFTP2P string `json:"cometbft_p2p"`
+	// CometBFTPeers is a CometBFT persistent_peers list (id@host:port,...).
+	CometBFTPeers string `json:"cometbft_peers"`
 }
 
 // Default returns a sensible development configuration.

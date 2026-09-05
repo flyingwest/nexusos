@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	abcitypes "github.com/cometbft/cometbft/abci/types"
 
@@ -21,6 +22,10 @@ import (
 
 // App is an ABCI 2.0 application that verifies and applies existing ledger.Tx
 // values via ledger.ApplyTx / Store.ApplyTxs.
+//
+// Validator set: ABCI 2.0 has no separate EndBlock; ValidatorUpdates are
+// returned from FinalizeBlock (take effect at height+2). The app diffs
+// membership-derived Ed25519 pubkeys against the tracked set each block.
 type App struct {
 	abcitypes.BaseApplication
 
@@ -33,6 +38,12 @@ type App struct {
 	persistDir string
 	// pending holds txs accepted in the last FinalizeBlock until Commit.
 	pending []ledger.Tx
+
+	// valSet tracks pubkey-hex → power after InitChain and after each proposed update.
+	valSet map[string]int64
+	// localPubKeyHex is the in-process FilePV pubkey (hex). Used to refuse
+	// membership sync that would remove the only key this node can sign with.
+	localPubKeyHex string
 }
 
 // NewApp constructs an ABCI app bound to the coordinator ledger.
@@ -41,7 +52,24 @@ func NewApp(led *ledger.Store, members *membership.Store) *App {
 		Ledger:  led,
 		Members: members,
 		appHash: []byte{},
+		valSet:  make(map[string]int64),
 	}
+}
+
+// SetLocalConsensusPubKey records the FilePV ed25519 pubkey (32 raw bytes or hex).
+func (a *App) SetLocalConsensusPubKey(pub []byte) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(pub) == 0 {
+		a.localPubKeyHex = ""
+		return
+	}
+	// Accept raw 32-byte or hex-encoded.
+	if len(pub) == 32 {
+		a.localPubKeyHex = hex.EncodeToString(pub)
+		return
+	}
+	a.localPubKeyHex = string(pub)
 }
 
 func (a *App) Info(context.Context, *abcitypes.RequestInfo) (*abcitypes.ResponseInfo, error) {
@@ -49,11 +77,28 @@ func (a *App) Info(context.Context, *abcitypes.RequestInfo) (*abcitypes.Response
 	defer a.mu.Unlock()
 	return &abcitypes.ResponseInfo{
 		Data:             "nexusos-ledger",
-		Version:          "0.2",
+		Version:          "0.3",
 		AppVersion:       1,
 		LastBlockHeight:  a.height,
 		LastBlockAppHash: append([]byte(nil), a.appHash...),
 	}, nil
+}
+
+// InitChain records genesis validators so FinalizeBlock can diff against membership.
+func (a *App) InitChain(_ context.Context, req *abcitypes.RequestInitChain) (*abcitypes.ResponseInitChain, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.valSet = make(map[string]int64, len(req.Validators))
+	for _, v := range req.Validators {
+		hexKey, ok := validatorUpdatePubKeyHex(v)
+		if !ok {
+			continue
+		}
+		if v.Power > 0 {
+			a.valSet[hexKey] = v.Power
+		}
+	}
+	return &abcitypes.ResponseInitChain{}, nil
 }
 
 // CheckTx validates signature, membership, and that ApplyTx would succeed on a
@@ -71,8 +116,8 @@ func (a *App) CheckTx(_ context.Context, req *abcitypes.RequestCheckTx) (*abcity
 	return &abcitypes.ResponseCheckTx{Code: CodeOK, GasWanted: 1}, nil
 }
 
-// FinalizeBlock verifies each tx and stages them for Commit. It does not
-// persist; Commit calls Store.ApplyTxs so crash-before-commit does not mutate.
+// FinalizeBlock verifies each tx, stages them for Commit, and proposes
+// ValidatorUpdates so CometBFT tracks permissioned membership (join/pair/leave).
 func (a *App) FinalizeBlock(_ context.Context, req *abcitypes.RequestFinalizeBlock) (*abcitypes.ResponseFinalizeBlock, error) {
 	results := make([]*abcitypes.ExecTxResult, len(req.Txs))
 	accepted := make([]ledger.Tx, 0, len(req.Txs))
@@ -94,16 +139,31 @@ func (a *App) FinalizeBlock(_ context.Context, req *abcitypes.RequestFinalizeBlo
 	}
 
 	appHash := hashState(&st)
+
 	a.mu.Lock()
+	valUpdates := a.validatorUpdatesLocked()
 	a.pending = accepted
 	a.height = req.Height
 	a.appHash = appHash
 	a.mu.Unlock()
 
 	return &abcitypes.ResponseFinalizeBlock{
-		TxResults: results,
-		AppHash:   appHash,
+		TxResults:        results,
+		AppHash:          appHash,
+		ValidatorUpdates: valUpdates,
 	}, nil
+}
+
+// validatorUpdatesLocked diffs membership → tracked set. Caller holds a.mu.
+func (a *App) validatorUpdatesLocked() []abcitypes.ValidatorUpdate {
+	desired := MembershipPowerByPubKey(a.Members)
+	updates := DiffValidatorUpdates(a.valSet, desired, a.localPubKeyHex)
+	if len(updates) == 0 {
+		return nil
+	}
+	ApplyValidatorUpdatesMut(a.valSet, updates)
+	_ = WriteMembershipValidatorSnapshot(a.persistDir, a.Members)
+	return updates
 }
 
 // Commit persists txs staged by FinalizeBlock.
@@ -149,8 +209,24 @@ func (a *App) validateBytes(raw []byte) (ledger.Tx, uint32, string) {
 	return tx, CodeOK, ""
 }
 
+// consensusDigest is the AppHash input: only fields driven by ABCI txs.
+// Nodes/heartbeats are updated via HTTP sync and must not affect AppHash, or
+// peers diverge (CONSENSUS FAILURE on Block.Header.AppHash).
+type consensusDigest struct {
+	Images     map[string]ledger.ImageRecord     `json:"images"`
+	Containers map[string]ledger.ContainerRecord `json:"containers"`
+	Migrations map[string]ledger.MigrationRecord `json:"migrations"`
+	Tombstones map[string]time.Time              `json:"tombstones,omitempty"`
+}
+
 func hashState(st *ledger.State) []byte {
-	b, err := json.Marshal(st)
+	d := consensusDigest{
+		Images:     st.Images,
+		Containers: st.Containers,
+		Migrations: st.Migrations,
+		Tombstones: st.Tombstones,
+	}
+	b, err := json.Marshal(d)
 	if err != nil {
 		sum := sha256.Sum256(nil)
 		return sum[:]
@@ -171,6 +247,17 @@ func (a *App) AppHashHex() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return hex.EncodeToString(a.appHash)
+}
+
+// ValidatorSetSnapshot returns a copy of the tracked pubkey→power map.
+func (a *App) ValidatorSetSnapshot() map[string]int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make(map[string]int64, len(a.valSet))
+	for k, v := range a.valSet {
+		out[k] = v
+	}
+	return out
 }
 
 // Ensure App implements abcitypes.Application.
