@@ -40,8 +40,10 @@ func main() {
 	heartbeatTimeout := flag.Duration("heartbeat-timeout", 0, "mark peers offline after this silence (default: 30s)")
 	useConsensus := flag.Bool("consensus", true, "commit image integrity and placement via permissioned hash-chain consensus")
 	consensusTimeout := flag.Duration("consensus-timeout", 0, "how long to wait for a quorum (default: 5s)")
-	consensusEngine := flag.String("consensus-engine", config.ConsensusEngineHashchain, "consensus engine: hashchain (default) | cometbft (spike)")
-	cometbftFlag := flag.Bool("cometbft", false, "shorthand for --consensus-engine=cometbft (spike; not default)")
+	consensusEngine := flag.String("consensus-engine", config.ConsensusEngineHashchain, "consensus engine: hashchain (default) | cometbft")
+	cometbftFlag := flag.Bool("cometbft", false, "shorthand for --consensus-engine=cometbft (not default)")
+	cometbftRPC := flag.String("cometbft-rpc", "", "CometBFT RPC listen (default tcp://127.0.0.1:26657)")
+	cometbftP2P := flag.String("cometbft-p2p", "", "CometBFT P2P listen (default tcp://127.0.0.1:26656)")
 	dev := flag.Bool("dev", false, "insecure local experiments: allow empty tokens and auto self-signed TLS")
 	insecureDev := flag.Bool("insecure-dev", false, "alias for --dev")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (required unless --dev)")
@@ -90,6 +92,12 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	cfg.ConsensusEngine = normalized
+	if *cometbftRPC != "" {
+		cfg.CometBFTRPC = *cometbftRPC
+	}
+	if *cometbftP2P != "" {
+		cfg.CometBFTP2P = *cometbftP2P
+	}
 	cfg.Dev = *dev || *insecureDev
 	cfg.TLSCertFile = *tlsCert
 	cfg.TLSKeyFile = *tlsKey
@@ -216,10 +224,23 @@ func main() {
 	}
 
 	var ceng *consensus.Engine
-	var cmtApp *cometbft.App
+	var cmtNode *cometbft.Node
 	if cfg.Consensus && cfg.ConsensusEngine == config.ConsensusEngineCometBFT {
-		cmtApp = cometbft.NewApp(ledgerStore, members)
-		log.Printf("CometBFT spike: ABCI app ready (engine=%s, height=%d). Full consensus node not started; see docs/cometbft-spike.md and cmd/cometbft-abci-harness", cfg.ConsensusEngine, cmtApp.Height())
+		cmtApp := cometbft.NewApp(ledgerStore, members)
+		home := filepath.Join(cfg.DataDir, "cometbft")
+		var err error
+		cmtNode, err = cometbft.StartNode(cmtApp, cometbft.NodeOptions{
+			HomeDir:   home,
+			RPCListen: cfg.CometBFTRPC,
+			P2PListen: cfg.CometBFTP2P,
+			Moniker:   truncateID(kp.NodeID, 12),
+			Members:   members,
+		})
+		if err != nil {
+			log.Fatalf("cometbft node: %v", err)
+		}
+		log.Printf("CometBFT node started (engine=%s, home=%s, rpc=%s, p2p=%s, height=%d); membership→validator snapshot under home; see docs/cometbft-spike.md",
+			cfg.ConsensusEngine, home, cmtNode.RPCAddress(), cmtNode.P2PAddress(), cmtApp.Height())
 	} else if cfg.Consensus {
 		chain, err := consensus.NewChain(cfg.DataDir)
 		if err != nil {
@@ -251,6 +272,10 @@ func main() {
 	}
 	defer rt.Close()
 
+	var txSubmitter httpapi.TxSubmitter
+	if cmtNode != nil {
+		txSubmitter = cmtNode
+	}
 	api := httpapi.New(httpapi.Options{
 		Addr:               cfg.ListenAddr,
 		APIToken:           cfg.APIToken,
@@ -265,6 +290,7 @@ func main() {
 		Members:            members,
 		Engine:             engine,
 		Consensus:          ceng,
+		TxSubmitter:        txSubmitter,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -286,7 +312,19 @@ func main() {
 	if err := api.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown error: %v", err)
 	}
+	if cmtNode != nil {
+		if err := cmtNode.Stop(); err != nil {
+			log.Printf("cometbft stop: %v", err)
+		}
+	}
 	log.Println("Bye.")
+}
+
+func truncateID(id string, n int) string {
+	if len(id) <= n {
+		return id
+	}
+	return id[:n]
 }
 
 func splitCSV(s string) []string {

@@ -18,6 +18,11 @@ import (
 )
 
 // Server exposes the coordination HTTP API.
+// TxSubmitter commits signed ledger txs (image/placement) through a consensus path.
+type TxSubmitter interface {
+	Submit(ctx context.Context, tx ledger.Tx) error
+}
+
 type Server struct {
 	addr               string
 	apiToken           string
@@ -32,6 +37,7 @@ type Server struct {
 	members            *membership.Store
 	engine             *p2p.Engine
 	consensus          *consensus.Engine
+	txSubmitter        TxSubmitter // when set (CometBFT), strict — no local upsert fallback
 	server             *http.Server
 }
 
@@ -50,6 +56,9 @@ type Options struct {
 	Members            *membership.Store
 	Engine             *p2p.Engine
 	Consensus          *consensus.Engine
+	// TxSubmitter, when non-nil, handles image/placement commits strictly
+	// (no silent local ledger upsert on failure). Used for CometBFT.
+	TxSubmitter TxSubmitter
 }
 
 // New creates an HTTP API server.
@@ -68,6 +77,7 @@ func New(opts Options) *Server {
 		members:            opts.Members,
 		engine:             opts.Engine,
 		consensus:          opts.Consensus,
+		txSubmitter:        opts.TxSubmitter,
 	}
 
 	mux := http.NewServeMux()
@@ -636,8 +646,28 @@ func (s *Server) tryConsensus(ctx context.Context, typ ledger.MessageType, paylo
 	return true
 }
 
+// submitStrict sends a tx through TxSubmitter. Returns true if a submitter is
+// configured (caller must not fall back to local upserts either way).
+func (s *Server) submitStrict(ctx context.Context, typ ledger.MessageType, payload any) bool {
+	if s.txSubmitter == nil {
+		return false
+	}
+	tx, err := ledger.NewTx(s.kp, typ, payload, time.Now().UTC())
+	if err != nil {
+		log.Printf("consensus tx (strict): %v", err)
+		return true
+	}
+	if err := s.txSubmitter.Submit(ctx, tx); err != nil {
+		log.Printf("consensus submit (strict): %v", err)
+	}
+	return true
+}
+
 func (s *Server) commitImage(ctx context.Context, digest string, size int64) {
 	payload := ledger.ImagePayload{Digest: digest, Size: size}
+	if s.submitStrict(ctx, ledger.MsgRegisterImage, payload) {
+		return
+	}
 	if s.tryConsensus(ctx, ledger.MsgRegisterImage, payload) {
 		return
 	}
@@ -650,6 +680,9 @@ func (s *Server) commitImage(ctx context.Context, digest string, size int64) {
 }
 
 func (s *Server) commitContainer(ctx context.Context, payload ledger.ContainerPayload, typ ledger.MessageType) {
+	if s.submitStrict(ctx, typ, payload) {
+		return
+	}
 	if s.tryConsensus(ctx, typ, payload) {
 		return
 	}
@@ -664,6 +697,9 @@ func (s *Server) commitContainer(ctx context.Context, payload ledger.ContainerPa
 }
 
 func (s *Server) commitRemove(ctx context.Context, id string) {
+	if s.submitStrict(ctx, ledger.MsgRemoveContainer, ledger.RemovePayload{ContainerID: id}) {
+		return
+	}
 	if s.tryConsensus(ctx, ledger.MsgRemoveContainer, ledger.RemovePayload{ContainerID: id}) {
 		return
 	}

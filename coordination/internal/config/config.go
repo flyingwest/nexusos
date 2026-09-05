@@ -46,8 +46,12 @@ type Config struct {
 	Consensus        bool          `json:"consensus"`
 	ConsensusTimeout time.Duration `json:"consensus_timeout"`
 	// ConsensusEngine selects the ordered-commit path: "hashchain" (default)
-	// or "cometbft" (spike ABCI app; full CometBFT node deferred).
+	// or "cometbft" (in-process CometBFT node + ABCI app).
 	ConsensusEngine string `json:"consensus_engine"`
+	// CometBFT listen addresses (only used when ConsensusEngine=cometbft).
+	// Defaults avoid clashing with the operator HTTP listener (:8080).
+	CometBFTRPC string `json:"cometbft_rpc"`
+	CometBFTP2P string `json:"cometbft_p2p"`
 }
 
 // Default returns a sensible development configuration.
@@ -74,6 +78,8 @@ func Default() *Config {
 		Consensus:          true,
 		ConsensusTimeout:   5 * time.Second,
 		ConsensusEngine:    ConsensusEngineHashchain,
+		CometBFTRPC:        "tcp://127.0.0.1:26657",
+		CometBFTP2P:        "tcp://127.0.0.1:26656",
 	}
 }
 

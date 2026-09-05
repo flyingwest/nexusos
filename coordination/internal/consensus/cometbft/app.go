@@ -1,9 +1,8 @@
-// Package cometbft implements a minimal ABCI application that maps NexusOS
-// ledger txs (image integrity + placement) onto CometBFT consensus.
+// Package cometbft implements an ABCI application and in-process CometBFT node
+// that map NexusOS ledger txs (image integrity + placement) onto consensus.
 //
-// This spike embeds the Application in-process. Starting a full CometBFT
-// consensus node (sidecar or node.New) is deferred; see docs/cometbft-spike.md
-// and cmd/cometbft-abci-harness.
+// Default coordinator engine remains the permissioned hash-chain; enable with
+// --consensus-engine=cometbft or --cometbft. See docs/cometbft-spike.md.
 package cometbft
 
 import (
@@ -28,9 +27,10 @@ type App struct {
 	Ledger  *ledger.Store
 	Members *membership.Store // optional; when set, non-members are rejected
 
-	mu      sync.Mutex
-	height  int64
-	appHash []byte
+	mu         sync.Mutex
+	height     int64
+	appHash    []byte
+	persistDir string
 	// pending holds txs accepted in the last FinalizeBlock until Commit.
 	pending []ledger.Tx
 }
@@ -49,7 +49,7 @@ func (a *App) Info(context.Context, *abcitypes.RequestInfo) (*abcitypes.Response
 	defer a.mu.Unlock()
 	return &abcitypes.ResponseInfo{
 		Data:             "nexusos-ledger",
-		Version:          "spike",
+		Version:          "0.2",
 		AppVersion:       1,
 		LastBlockHeight:  a.height,
 		LastBlockAppHash: append([]byte(nil), a.appHash...),
@@ -117,6 +117,12 @@ func (a *App) Commit(context.Context, *abcitypes.RequestCommit) (*abcitypes.Resp
 		if err := a.Ledger.ApplyTxs(pending); err != nil {
 			return nil, fmt.Errorf("commit apply: %w", err)
 		}
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.saveMetaLocked(); err != nil {
+		return nil, fmt.Errorf("commit meta: %w", err)
 	}
 	return &abcitypes.ResponseCommit{RetainHeight: 0}, nil
 }
