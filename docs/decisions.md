@@ -239,3 +239,14 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 **Rationale**: Pairing that mutated only local membership caused `NextValidatorsHash` divergence when nodes paired at different heights. Ordering membership with ledger state removes the pair-before-CometBFT-start requirement.
 
 **Status**: Accepted
+
+
+---
+
+## 2026-09-05 – Flip default consensus engine to CometBFT
+
+**Decision**: Default `--consensus-engine` to **`cometbft`**. Keep `--consensus-engine=hashchain` for a deprecation window and log a clear warning when it is selected. **Do not delete** hash-chain code in this PR. Explicit hash-chain remains the path for mock two-node HTTP e2e and smoke/QEMU two-guest images that lack shared CometBFT genesis/`--cometbft-peers`.
+
+**Rationale**: Membership txs + dynamic validators + two-node e2e unblocked cutting over the default. Operators who need the old path can opt in explicitly during the window.
+
+**Status**: Accepted

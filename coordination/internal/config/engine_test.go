@@ -8,7 +8,7 @@ func TestNormalizeConsensusEngine(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{"", ConsensusEngineHashchain, false},
+		{"", ConsensusEngineCometBFT, false},
 		{"hashchain", ConsensusEngineHashchain, false},
 		{"CometBFT", ConsensusEngineCometBFT, false},
 		{"cometbft", ConsensusEngineCometBFT, false},

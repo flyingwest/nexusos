@@ -13,6 +13,8 @@
 ```bash
 make build   # or go build the two cmd packages into bin/
 ./bin/coordinator --dev --mock --listen :8080 --api-token secret --join-token cluster
+# default consensus engine: cometbft
+# deprecated: add --consensus-engine=hashchain
 ./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure health
 ./scripts/e2e-two-node-mock.sh
 ```

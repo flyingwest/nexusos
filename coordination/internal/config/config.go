@@ -45,8 +45,8 @@ type Config struct {
 	// Heartbeats still use HTTP snapshot sync.
 	Consensus        bool          `json:"consensus"`
 	ConsensusTimeout time.Duration `json:"consensus_timeout"`
-	// ConsensusEngine selects the ordered-commit path: "hashchain" (default)
-	// or "cometbft" (in-process CometBFT node + ABCI app).
+	// ConsensusEngine selects the ordered-commit path: "cometbft" (default)
+	// or "hashchain" (deprecated; retained for a deprecation window).
 	ConsensusEngine string `json:"consensus_engine"`
 	// CometBFT listen addresses (only used when ConsensusEngine=cometbft).
 	// Defaults avoid clashing with the operator HTTP listener (:8080).
@@ -79,7 +79,7 @@ func Default() *Config {
 		HeartbeatTimeout:   30 * time.Second,
 		Consensus:          true,
 		ConsensusTimeout:   5 * time.Second,
-		ConsensusEngine:    ConsensusEngineHashchain,
+		ConsensusEngine:    ConsensusEngineCometBFT,
 		CometBFTRPC:        "tcp://127.0.0.1:26657",
 		CometBFTP2P:        "tcp://127.0.0.1:26656",
 	}

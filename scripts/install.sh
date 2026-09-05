@@ -41,6 +41,7 @@ else
   echo "    nexusos-coordinator --mock --listen :8080 --data-dir $DATA_DIR \"
   echo "      --api-token SECRET --join-token CLUSTER --tls-cert CERT --tls-key KEY"
   echo "    Or local experiments: nexusos-coordinator --dev --mock --listen :8080 --data-dir $DATA_DIR"
+  echo "    Default consensus engine: cometbft (use --consensus-engine=hashchain only if needed)"
 fi
 
 echo "==> Done"

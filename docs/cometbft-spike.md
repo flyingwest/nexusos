@@ -1,10 +1,10 @@
 # CometBFT embed (feature-flagged)
 
-**Status**: in-process node + mempool Submit + membership txs + dynamic validators + two-node e2e / not default  
+**Status**: **default** consensus engine — in-process node + mempool Submit + membership txs + dynamic validators + two-node e2e  
 **Date**: 2026-09-05 (updated)  
 **Module**: `github.com/cometbft/cometbft v0.38.26` (ABCI 2.0 line; Go 1.22+). `coordination/go.mod` uses `go 1.22.11` (+ toolchain).
 
-This document describes the feature-flagged path that runs **CometBFT as the consensus engine** for **image-integrity** and **placement** transactions, while keeping the existing permissioned hash-chain as the **default**.
+This document describes the path that runs **CometBFT as the default consensus engine** for **image-integrity**, **placement**, and **membership** transactions. The permissioned hash-chain remains available via `--consensus-engine=hashchain` for a **deprecation window** (do not delete that code yet).
 
 ## Architecture: in-process CometBFT node + ABCI application
 
@@ -25,7 +25,7 @@ This document describes the feature-flagged path that runs **CometBFT as the con
 │                 ValidatorUpdates)        │
 │  cometbft.Node (in-process consensus)    │── local BroadcastTxCommit
 │  httpapi → TxSubmitter (strict)          │
-│  consensus.Engine (hash-chain; default)  │
+│  consensus.Engine (hash-chain; deprecated)│
 └──────────────────────────────────────────┘
 ```
 
@@ -137,10 +137,11 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 1. ~~**Spike**: ABCI app + flag + docs~~ ✅
 2. ~~**In-process node + mempool Submit**~~ ✅
 3. ~~**Dynamic validators** via FinalizeBlock from membership~~ ✅
-4. ~~**Multi-node harness** (shared genesis + `--cometbft-peers` + Go e2e)~~ ✅ (scripted coordinator e2e may be flaky under load; Go test is the reliable proof)
-5. **Dual-run / shadow** (optional): Compare app hashes vs hash-chain heights in a lab cluster.
-6. **Cutover**: Flip default `--consensus-engine` only after security review. **Do not remove** `internal/consensus` until cutover is proven.
-7. **Freeze hash-chain** as fallback / `--consensus-engine=hashchain` for one release.
+4. ~~**Multi-node harness** (shared genesis + `--cometbft-peers` + Go e2e)~~ ✅
+5. ~~**Membership as consensus txs** (`JoinMember` / `LeaveMember`)~~ ✅
+6. ~~**Cutover**: default `--consensus-engine=cometbft`~~ ✅ (this release)
+7. **Deprecation window**: `--consensus-engine=hashchain` still works; logs a clear warning. **Do not delete** `internal/consensus` hash-chain code yet.
+8. **Later**: remove hash-chain engine after the deprecation window.
 
 ## Known risks / deferred
 
@@ -161,4 +162,4 @@ go run ./cmd/cometbft-abci-harness --data-dir /tmp/nexus-abci \
 - [x] Two-node Go e2e: tx on A applied on B via consensus (`TestTwoNodeConsensusAppliesTxOnPeer`)
 - [x] Membership as consensus tx + validator updates (`TestFinalizeBlockValidatorUpdatesFromMembershipTx`, `TestTwoNodeJoinMemberAfterStart`)
 - [x] Scripted harness `scripts/e2e-cometbft-two-node.sh` (pair-after-start) + run docs
-- [x] Default engine remains `hashchain` (until cutover PR)
+- [x] Default engine is `cometbft`; hash-chain selectable + deprecation warning

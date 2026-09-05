@@ -38,10 +38,10 @@ func main() {
 	joinToken := flag.String("join-token", "", "shared token required to pair")
 	syncInterval := flag.Duration("sync-interval", 0, "peer ledger sync interval (default: 10s)")
 	heartbeatTimeout := flag.Duration("heartbeat-timeout", 0, "mark peers offline after this silence (default: 30s)")
-	useConsensus := flag.Bool("consensus", true, "commit image integrity and placement via permissioned hash-chain consensus")
-	consensusTimeout := flag.Duration("consensus-timeout", 0, "how long to wait for a quorum (default: 5s)")
-	consensusEngine := flag.String("consensus-engine", config.ConsensusEngineHashchain, "consensus engine: hashchain (default) | cometbft")
-	cometbftFlag := flag.Bool("cometbft", false, "shorthand for --consensus-engine=cometbft (not default)")
+	useConsensus := flag.Bool("consensus", true, "commit image integrity and placement via consensus (CometBFT by default)")
+	consensusTimeout := flag.Duration("consensus-timeout", 0, "how long to wait for a quorum when using hashchain (default: 5s)")
+	consensusEngine := flag.String("consensus-engine", config.ConsensusEngineCometBFT, "consensus engine: cometbft (default) | hashchain (deprecated)")
+	cometbftFlag := flag.Bool("cometbft", false, "shorthand for --consensus-engine=cometbft (default engine)")
 	cometbftRPC := flag.String("cometbft-rpc", "", "CometBFT RPC listen (default tcp://127.0.0.1:26657)")
 	cometbftP2P := flag.String("cometbft-p2p", "", "CometBFT P2P listen (default tcp://127.0.0.1:26656)")
 	cometbftPeers := flag.String("cometbft-peers", "", "CometBFT persistent_peers (id@host:port,...)")
@@ -93,6 +93,9 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	cfg.ConsensusEngine = normalized
+	if cfg.ConsensusEngine == config.ConsensusEngineHashchain {
+		log.Printf("WARNING: --consensus-engine=hashchain is deprecated; default is cometbft. Hash-chain remains available for a deprecation window and will be removed in a later release. See docs/cometbft-spike.md")
+	}
 	if *cometbftRPC != "" {
 		cfg.CometBFTRPC = *cometbftRPC
 	}
