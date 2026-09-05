@@ -100,12 +100,19 @@ type WorkloadRecord struct {
 	ImageRef    string            `json:"image_ref,omitempty"`
 	Replicas    uint32            `json:"replicas"`
 	Resources   ResourceSpec      `json:"resources,omitempty"`
-	Strategy    string            `json:"strategy,omitempty"` // Recreate (Rolling deferred)
-	Labels      map[string]string `json:"labels,omitempty"`
-	Status      WorkloadStatus    `json:"status"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	Strategy       string            `json:"strategy,omitempty"` // Recreate | RollingUpdate
+	MaxUnavailable uint32            `json:"max_unavailable,omitempty"` // RollingUpdate budget; 0 => 1
+	Labels         map[string]string `json:"labels,omitempty"`
+	Status         WorkloadStatus    `json:"status"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
 }
+
+// Workload update strategies (Phase 3).
+const (
+	StrategyRecreate      = "Recreate"
+	StrategyRollingUpdate = "RollingUpdate"
+)
 
 // MigrationRecord tracks a coordinated move.
 type MigrationRecord struct {

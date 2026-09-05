@@ -56,14 +56,15 @@ type MemberPayload struct {
 
 // WorkloadPayload is CreateWorkload / UpdateWorkload.
 type WorkloadPayload struct {
-	WorkloadID  string            `json:"workload_id"`
-	ImageDigest string            `json:"image_digest"`
-	ImageRef    string            `json:"image_ref,omitempty"`
-	Replicas    uint32            `json:"replicas"`
-	Resources   ResourceSpec      `json:"resources,omitempty"`
-	Strategy    string            `json:"strategy,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Owner       string            `json:"owner,omitempty"`
+	WorkloadID     string            `json:"workload_id"`
+	ImageDigest    string            `json:"image_digest"`
+	ImageRef       string            `json:"image_ref,omitempty"`
+	Replicas       uint32            `json:"replicas"`
+	Resources      ResourceSpec      `json:"resources,omitempty"`
+	Strategy       string            `json:"strategy,omitempty"`
+	MaxUnavailable uint32            `json:"max_unavailable,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Owner          string            `json:"owner,omitempty"`
 }
 
 // ScaleWorkloadPayload adjusts replica count only.

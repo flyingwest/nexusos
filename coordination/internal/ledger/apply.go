@@ -173,18 +173,16 @@ func ApplyTx(st *State, tx Tx) error {
 			return fmt.Errorf("workload %s not found", p.WorkloadID)
 		}
 		rec := WorkloadRecord{
-			WorkloadID:  p.WorkloadID,
-			Owner:       owner,
-			ImageDigest: p.ImageDigest,
-			ImageRef:    p.ImageRef,
-			Replicas:    p.Replicas,
-			Resources:   p.Resources,
-			Strategy:    p.Strategy,
-			Labels:      p.Labels,
-			UpdatedAt:   tx.Timestamp,
-		}
-		if rec.Strategy == "" {
-			rec.Strategy = "Recreate"
+			WorkloadID:     p.WorkloadID,
+			Owner:          owner,
+			ImageDigest:    p.ImageDigest,
+			ImageRef:       p.ImageRef,
+			Replicas:       p.Replicas,
+			Resources:      p.Resources,
+			Strategy:       p.Strategy,
+			MaxUnavailable: p.MaxUnavailable,
+			Labels:         p.Labels,
+			UpdatedAt:      tx.Timestamp,
 		}
 		if ok {
 			if rec.ImageDigest == "" {
@@ -196,13 +194,26 @@ func ApplyTx(st *State, tx Tx) error {
 			if rec.Owner == "" {
 				rec.Owner = existing.Owner
 			}
+			if rec.Strategy == "" {
+				rec.Strategy = existing.Strategy
+			}
+			if p.MaxUnavailable == 0 && existing.MaxUnavailable != 0 {
+				rec.MaxUnavailable = existing.MaxUnavailable
+			}
 			if len(rec.Labels) == 0 {
 				rec.Labels = existing.Labels
+			}
+			if rec.Resources == (ResourceSpec{}) {
+				rec.Resources = existing.Resources
 			}
 			rec.CreatedAt = existing.CreatedAt
 			rec.Status = existing.Status
 		} else {
 			rec.CreatedAt = tx.Timestamp
+		}
+		rec.Strategy = NormalizeStrategy(rec.Strategy)
+		if err := ValidateStrategy(rec.Strategy); err != nil {
+			return err
 		}
 		rec.Status.Desired = rec.Replicas
 		st.Workloads[p.WorkloadID] = rec

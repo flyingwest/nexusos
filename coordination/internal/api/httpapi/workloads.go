@@ -11,13 +11,14 @@ import (
 )
 
 type workloadRequest struct {
-	WorkloadID  string              `json:"workload_id"`
-	ImageDigest string              `json:"image_digest"`
-	ImageRef    string              `json:"image_ref"`
-	Replicas    uint32              `json:"replicas"`
-	Resources   ledger.ResourceSpec `json:"resources"`
-	Strategy    string              `json:"strategy"`
-	Labels      map[string]string   `json:"labels"`
+	WorkloadID     string              `json:"workload_id"`
+	ImageDigest    string              `json:"image_digest"`
+	ImageRef       string              `json:"image_ref"`
+	Replicas       uint32              `json:"replicas"`
+	Resources      ledger.ResourceSpec `json:"resources"`
+	Strategy       string              `json:"strategy"`
+	MaxUnavailable uint32              `json:"max_unavailable"`
+	Labels         map[string]string   `json:"labels"`
 }
 
 type scaleRequest struct {
@@ -74,16 +75,22 @@ func (s *Server) handleCreateWorkload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Strategy == "" {
-		req.Strategy = "Recreate"
+		req.Strategy = ledger.StrategyRollingUpdate
+	}
+	req.Strategy = ledger.NormalizeStrategy(req.Strategy)
+	if err := ledger.ValidateStrategy(req.Strategy); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	payload := ledger.WorkloadPayload{
-		WorkloadID:  req.WorkloadID,
-		ImageDigest: req.ImageDigest,
-		ImageRef:    req.ImageRef,
-		Replicas:    req.Replicas,
-		Resources:   req.Resources,
-		Strategy:    req.Strategy,
-		Labels:      req.Labels,
+		WorkloadID:     req.WorkloadID,
+		ImageDigest:    req.ImageDigest,
+		ImageRef:       req.ImageRef,
+		Replicas:       req.Replicas,
+		Resources:      req.Resources,
+		Strategy:       req.Strategy,
+		MaxUnavailable: req.MaxUnavailable,
+		Labels:         req.Labels,
 	}
 	if err := s.commitWorkload(r.Context(), ledger.MsgCreateWorkload, payload); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -101,6 +108,68 @@ func (s *Server) handleCreateWorkload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, enrichWorkloadStatus(wl, st))
+}
+
+func (s *Server) handleUpdateWorkload(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := s.ledger.GetWorkload(id); !ok {
+		writeError(w, http.StatusNotFound, "workload not found")
+		return
+	}
+	var req workloadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	req.WorkloadID = id
+	if req.ImageDigest == "" && req.ImageRef != "" {
+		info, err := s.rt.VerifyImage(r.Context(), req.ImageRef)
+		if err != nil {
+			info, err = s.rt.Pull(r.Context(), req.ImageRef)
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "image not available: "+err.Error())
+			return
+		}
+		req.ImageDigest = info.Digest
+	}
+	if req.ImageDigest != "" && s.requireImageDigest && !strings.HasPrefix(req.ImageDigest, "sha256:") {
+		writeError(w, http.StatusBadRequest, "image_digest must be sha256:...")
+		return
+	}
+	if req.Strategy != "" {
+		req.Strategy = ledger.NormalizeStrategy(req.Strategy)
+		if err := ledger.ValidateStrategy(req.Strategy); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	existing, _ := s.ledger.GetWorkload(id)
+	replicas := req.Replicas
+	if replicas == 0 {
+		replicas = existing.Replicas
+	}
+	payload := ledger.WorkloadPayload{
+		WorkloadID:     req.WorkloadID,
+		ImageDigest:    req.ImageDigest,
+		ImageRef:       req.ImageRef,
+		Replicas:       replicas,
+		Resources:      req.Resources,
+		Strategy:       req.Strategy,
+		MaxUnavailable: req.MaxUnavailable,
+		Labels:         req.Labels,
+	}
+	if err := s.commitWorkload(r.Context(), ledger.MsgUpdateWorkload, payload); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	st := s.ledger.Snapshot()
+	wl, ok := st.Workloads[id]
+	if !ok {
+		writeJSON(w, http.StatusAccepted, map[string]any{"status": "submitted", "workload_id": id})
+		return
+	}
+	writeJSON(w, http.StatusOK, enrichWorkloadStatus(wl, st))
 }
 
 func (s *Server) handleDeleteWorkload(w http.ResponseWriter, r *http.Request) {

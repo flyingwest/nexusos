@@ -55,7 +55,8 @@ Workload {
   replicas         : uint32
   resources        : ResourceSpec
   constraints      : Constraints
-  strategy         : Rolling | Recreate
+  strategy         : RollingUpdate | Recreate
+  max_unavailable  : uint32 (RollingUpdate budget; 0 => 1)
   status           : {
     desired        : uint32
     current        : uint32

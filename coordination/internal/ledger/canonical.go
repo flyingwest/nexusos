@@ -61,18 +61,19 @@ type canonTomb struct {
 }
 
 type canonWorkload struct {
-	WorkloadID  string `json:"workload_id"`
-	Owner       string `json:"owner,omitempty"`
-	ImageDigest string `json:"image_digest"`
-	ImageRef    string `json:"image_ref,omitempty"`
-	Replicas    uint32 `json:"replicas"`
-	Strategy    string `json:"strategy,omitempty"`
-	Labels      []kv   `json:"labels,omitempty"`
-	Desired     uint32 `json:"status_desired"`
-	Current     uint32 `json:"status_current"`
-	Available   uint32 `json:"status_available"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	WorkloadID     string `json:"workload_id"`
+	Owner          string `json:"owner,omitempty"`
+	ImageDigest    string `json:"image_digest"`
+	ImageRef       string `json:"image_ref,omitempty"`
+	Replicas       uint32 `json:"replicas"`
+	Strategy       string `json:"strategy,omitempty"`
+	MaxUnavailable uint32 `json:"max_unavailable,omitempty"`
+	Labels         []kv   `json:"labels,omitempty"`
+	Desired        uint32 `json:"status_desired"`
+	Current        uint32 `json:"status_current"`
+	Available      uint32 `json:"status_available"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type canonState struct {
@@ -165,18 +166,19 @@ func CanonicalBytes(st State) ([]byte, error) {
 	for _, id := range wids {
 		w := st.Workloads[id]
 		out.Workloads = append(out.Workloads, canonWorkload{
-			WorkloadID:  w.WorkloadID,
-			Owner:       w.Owner,
-			ImageDigest: w.ImageDigest,
-			ImageRef:    w.ImageRef,
-			Replicas:    w.Replicas,
-			Strategy:    w.Strategy,
-			Labels:      sortedLabels(w.Labels),
-			Desired:     w.Status.Desired,
-			Current:     w.Status.Current,
-			Available:   w.Status.Available,
-			CreatedAt:   canonTime(w.CreatedAt),
-			UpdatedAt:   canonTime(w.UpdatedAt),
+			WorkloadID:     w.WorkloadID,
+			Owner:          w.Owner,
+			ImageDigest:    w.ImageDigest,
+			ImageRef:       w.ImageRef,
+			Replicas:       w.Replicas,
+			Strategy:       w.Strategy,
+			MaxUnavailable: w.MaxUnavailable,
+			Labels:         sortedLabels(w.Labels),
+			Desired:        w.Status.Desired,
+			Current:        w.Status.Current,
+			Available:      w.Status.Available,
+			CreatedAt:      canonTime(w.CreatedAt),
+			UpdatedAt:      canonTime(w.UpdatedAt),
 		})
 	}
 

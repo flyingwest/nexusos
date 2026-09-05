@@ -114,6 +114,7 @@ func New(opts Options) *Server {
 	mux.HandleFunc("GET /v1/workloads", s.handleListWorkloads)
 	mux.HandleFunc("GET /v1/workloads/{id}", s.handleGetWorkload)
 	mux.HandleFunc("POST /v1/workloads", s.handleCreateWorkload)
+	mux.HandleFunc("PUT /v1/workloads/{id}", s.handleUpdateWorkload)
 	mux.HandleFunc("DELETE /v1/workloads/{id}", s.handleDeleteWorkload)
 	mux.HandleFunc("POST /v1/workloads/{id}/scale", s.handleScaleWorkload)
 	mux.HandleFunc("POST /v1/net/hello", s.handleNetHello)

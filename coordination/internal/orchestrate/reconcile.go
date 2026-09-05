@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/nexusos/coordination/internal/identity"
@@ -92,6 +93,12 @@ func (r *Reconciler) Once(ctx context.Context) error {
 	return r.reconcileLocal(ctx, st)
 }
 
+type pendingPlacement struct {
+	p        Placement
+	existing ledger.ContainerRecord
+	ok       bool
+}
+
 func (r *Reconciler) ensurePlacements(ctx context.Context, st ledger.State, wl ledger.WorkloadRecord, now time.Time) error {
 	if wl.Replicas == 0 {
 		return nil
@@ -100,38 +107,77 @@ func (r *Reconciler) ensurePlacements(ctx context.Context, st ledger.State, wl l
 	if len(placements) == 0 {
 		return fmt.Errorf("no online nodes to place workload %s", wl.WorkloadID)
 	}
+
+	var creates, updates []pendingPlacement
 	for _, p := range placements {
 		existing, ok := st.Containers[p.ContainerID]
 		if ok && existing.CurrentNode == p.NodeID && existing.Desired == "Running" &&
 			existing.ImageDigest == wl.ImageDigest && existing.WorkloadID == wl.WorkloadID {
 			continue
 		}
-		idx := p.ReplicaIndex
-		labels := map[string]string{}
-		for k, v := range wl.Labels {
-			labels[k] = v
+		item := pendingPlacement{p: p, existing: existing, ok: ok}
+		if !ok {
+			creates = append(creates, item)
+		} else {
+			updates = append(updates, item)
 		}
-		labels["nexusos.workload_id"] = wl.WorkloadID
-		labels["nexusos.replica_index"] = fmt.Sprintf("%d", p.ReplicaIndex)
-		payload := ledger.ContainerPayload{
-			ContainerID:  p.ContainerID,
-			ImageDigest:  wl.ImageDigest,
-			Desired:      "Running",
-			CurrentNode:  p.NodeID,
-			WorkloadID:   wl.WorkloadID,
-			ReplicaIndex: &idx,
-			Labels:       labels,
-			Owner:        wl.Owner,
+	}
+
+	sort.Slice(creates, func(i, j int) bool { return creates[i].p.ReplicaIndex < creates[j].p.ReplicaIndex })
+	sort.Slice(updates, func(i, j int) bool { return updates[i].p.ReplicaIndex < updates[j].p.ReplicaIndex })
+
+	// Scale-up / first placement: create all missing replicas immediately.
+	for _, item := range creates {
+		if err := r.submitPlacement(ctx, wl, item, now); err != nil {
+			return err
 		}
-		typ := ledger.MsgCreateContainer
-		if ok {
-			typ = ledger.MsgUpdateContainer
+	}
+
+	// Image/spec (or node) changes: Recreate updates all; RollingUpdate budgets.
+	toUpdate := updates
+	strategy := ledger.NormalizeStrategy(wl.Strategy)
+	if strategy == ledger.StrategyRollingUpdate && len(updates) > 0 {
+		budget := ledger.EffectiveMaxUnavailable(wl)
+		if budget < 1 {
+			budget = 1
 		}
-		if err := r.submit(ctx, typ, payload, now); err != nil {
+		if budget > len(updates) {
+			budget = len(updates)
+		}
+		toUpdate = updates[:budget]
+	}
+	for _, item := range toUpdate {
+		if err := r.submitPlacement(ctx, wl, item, now); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (r *Reconciler) submitPlacement(ctx context.Context, wl ledger.WorkloadRecord, item pendingPlacement, now time.Time) error {
+	p := item.p
+	idx := p.ReplicaIndex
+	labels := map[string]string{}
+	for k, v := range wl.Labels {
+		labels[k] = v
+	}
+	labels["nexusos.workload_id"] = wl.WorkloadID
+	labels["nexusos.replica_index"] = fmt.Sprintf("%d", p.ReplicaIndex)
+	payload := ledger.ContainerPayload{
+		ContainerID:  p.ContainerID,
+		ImageDigest:  wl.ImageDigest,
+		Desired:      "Running",
+		CurrentNode:  p.NodeID,
+		WorkloadID:   wl.WorkloadID,
+		ReplicaIndex: &idx,
+		Labels:       labels,
+		Owner:        wl.Owner,
+	}
+	typ := ledger.MsgCreateContainer
+	if item.ok {
+		typ = ledger.MsgUpdateContainer
+	}
+	return r.submit(ctx, typ, payload, now)
 }
 
 func (r *Reconciler) reconcileLocal(ctx context.Context, st ledger.State) error {
@@ -151,13 +197,22 @@ func (r *Reconciler) reconcileLocal(ctx context.Context, st ledger.State) error 
 		have[c.ID] = c
 	}
 
-	// Start missing
+	// Start missing or restart when placement image digest diverges from runtime.
 	for id, want := range local {
-		if _, ok := have[id]; ok {
-			continue
+		if info, ok := have[id]; ok {
+			if want.ImageDigest == "" || info.ImageDigest == want.ImageDigest {
+				continue
+			}
+			_ = r.Runtime.Stop(ctx, id, 5*time.Second)
+			if err := r.Runtime.Remove(ctx, id); err != nil {
+				log.Printf("orchestrate replace remove %s: %v", id, err)
+				continue
+			}
+			delete(have, id)
+			log.Printf("orchestrate restarting container %s (image digest changed)", id)
 		}
 		ref := want.ImageDigest
-		if wl, ok := st.Workloads[want.WorkloadID]; ok && wl.ImageRef != "" {
+		if wl, ok := st.Workloads[want.WorkloadID]; ok && wl.ImageRef != "" && want.ImageDigest == wl.ImageDigest {
 			ref = wl.ImageRef
 		}
 		if ref == "" {
@@ -165,10 +220,11 @@ func (r *Reconciler) reconcileLocal(ctx context.Context, st ledger.State) error 
 			continue
 		}
 		_, err := r.Runtime.Start(ctx, runtime.StartOptions{
-			ID:       id,
-			Name:     id,
-			ImageRef: ref,
-			Labels:   want.Labels,
+			ID:          id,
+			Name:        id,
+			ImageRef:    ref,
+			ImageDigest: want.ImageDigest,
+			Labels:      want.Labels,
 		})
 		if err != nil {
 			// Failure policy: leave desired on ledger; retry next tick.

@@ -491,11 +491,15 @@ func cmdWorkloads() *cobra.Command {
 			image, _ := cmd.Flags().GetString("image")
 			digest, _ := cmd.Flags().GetString("digest")
 			replicas, _ := cmd.Flags().GetUint32("replicas")
+			strategy, _ := cmd.Flags().GetString("strategy")
+			maxUnavail, _ := cmd.Flags().GetUint32("max-unavailable")
 			payload := map[string]any{
-				"workload_id":  args[0],
-				"image_ref":    image,
-				"image_digest": digest,
-				"replicas":     replicas,
+				"workload_id":     args[0],
+				"image_ref":       image,
+				"image_digest":    digest,
+				"replicas":        replicas,
+				"strategy":        strategy,
+				"max_unavailable": maxUnavail,
 			}
 			return doJSON(http.MethodPost, "/v1/workloads", payload, nil)
 		},
@@ -503,7 +507,38 @@ func cmdWorkloads() *cobra.Command {
 	create.Flags().String("image", "", "image reference (pulled/resolved if digest omitted)")
 	create.Flags().String("digest", "", "image digest sha256:...")
 	create.Flags().Uint32("replicas", 1, "desired replica count")
+	create.Flags().String("strategy", "RollingUpdate", "update strategy: RollingUpdate or Recreate")
+	create.Flags().Uint32("max-unavailable", 0, "RollingUpdate: max replicas to update per reconcile tick (0=1)")
 	c.AddCommand(create)
+
+	update := &cobra.Command{
+		Use:   "update [id]",
+		Short: "Update a workload image/strategy (triggers rolling or recreate)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			image, _ := cmd.Flags().GetString("image")
+			digest, _ := cmd.Flags().GetString("digest")
+			replicas, _ := cmd.Flags().GetUint32("replicas")
+			strategy, _ := cmd.Flags().GetString("strategy")
+			maxUnavail, _ := cmd.Flags().GetUint32("max-unavailable")
+			payload := map[string]any{
+				"image_ref":       image,
+				"image_digest":    digest,
+				"strategy":        strategy,
+				"max_unavailable": maxUnavail,
+			}
+			if cmd.Flags().Changed("replicas") {
+				payload["replicas"] = replicas
+			}
+			return doJSON(http.MethodPut, "/v1/workloads/"+args[0], payload, nil)
+		},
+	}
+	update.Flags().String("image", "", "new image reference")
+	update.Flags().String("digest", "", "new image digest sha256:...")
+	update.Flags().Uint32("replicas", 0, "optional new replica count")
+	update.Flags().String("strategy", "", "optional strategy: RollingUpdate or Recreate")
+	update.Flags().Uint32("max-unavailable", 0, "optional RollingUpdate budget (0=preserve/default)")
+	c.AddCommand(update)
 
 	scale := &cobra.Command{
 		Use:   "scale [id] [replicas]",
