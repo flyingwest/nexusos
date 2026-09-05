@@ -45,6 +45,9 @@ type Config struct {
 	// Heartbeats still use HTTP snapshot sync.
 	Consensus        bool          `json:"consensus"`
 	ConsensusTimeout time.Duration `json:"consensus_timeout"`
+	// ConsensusEngine selects the ordered-commit path: "hashchain" (default)
+	// or "cometbft" (spike ABCI app; full CometBFT node deferred).
+	ConsensusEngine string `json:"consensus_engine"`
 }
 
 // Default returns a sensible development configuration.
@@ -70,6 +73,7 @@ func Default() *Config {
 		HeartbeatTimeout:   30 * time.Second,
 		Consensus:          true,
 		ConsensusTimeout:   5 * time.Second,
+		ConsensusEngine:    ConsensusEngineHashchain,
 	}
 }
 

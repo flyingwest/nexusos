@@ -8,7 +8,7 @@ The shared ledger tracks **container image integrity** and **which containers ru
 
 Native orchestration exists, but it is secondary to the distributed OS foundation.
 
-> **Status**: Phase 2 **FROZEN** — permissioned peer ledger sync + hash-chain consensus, hardened with required join-token + API token + TLS. Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
+> **Status**: Phase 2 **FROZEN** — permissioned peer ledger sync + hash-chain consensus, hardened with required join-token + API token + TLS. Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)). **Spike**: feature-flagged CometBFT ABCI path (not default) — see [docs/cometbft-spike.md](docs/cometbft-spike.md).
 
 ---
 
@@ -126,6 +126,14 @@ A node that misses heartbeats for `--heartbeat-timeout` (default 30s) is marked 
 
 containerd remains supported via `--mock=false` but is **not** required for CI or the mock e2e path.
 
+### CometBFT spike (opt-in, not default)
+
+A feature-flagged ABCI application can map existing ledger image/placement txs onto CometBFT. Default remains the permissioned hash-chain (`--consensus-engine=hashchain`). See [docs/cometbft-spike.md](docs/cometbft-spike.md).
+
+```bash
+./bin/coordinator --dev --mock --cometbft   # constructs ABCI app only; full node deferred
+```
+
 ---
 
 ## Project Structure
@@ -142,7 +150,8 @@ nexusos/
 │   ├── ledger-schema.md
 │   ├── decisions.md
 │   ├── phase2-freeze.md    # Phase 2 exit / freeze checklist
-│   └── node-image.md       # Debian Bookworm node image build/boot
+│   ├── node-image.md       # Debian Bookworm node image build/boot
+│   └── cometbft-spike.md   # CometBFT ABCI spike (feature-flagged)
 ├── coordination/           # Go module – coordination service
 │   ├── cmd/coordinator/
 │   ├── cmd/nexusctl/
@@ -155,6 +164,7 @@ nexusos/
 │       ├── ledger/         # placement + image integrity
 │       ├── p2p/            # signed snapshot sync
 │       ├── consensus/      # permissioned hash-chain (placement + images)
+│       │   └── cometbft/   # spike ABCI app (opt-in; not default)
 │       └── state/
 ├── scripts/                # install.sh, e2e, qemu-node-smoke/two-node-e2e.sh
 ├── deploy/                 # systemd unit
