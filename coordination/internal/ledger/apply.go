@@ -120,6 +120,7 @@ func ApplyTx(st *State, tx Tx) error {
 			Label:     p.Label,
 			UpdatedAt: tx.Timestamp,
 		}
+		delete(st.Tombstones, MemberTomb(p.NodeID))
 		return nil
 
 	case MsgLeaveMember:
@@ -130,13 +131,32 @@ func ApplyTx(st *State, tx Tx) error {
 		if p.NodeID == "" {
 			return fmt.Errorf("member node_id is required")
 		}
+		rec, existed := st.Members[p.NodeID]
+		if !existed {
+			// Idempotent leave: still stamp tombstone so AppHash reflects the intent.
+			st.Tombstones[MemberTomb(p.NodeID)] = tx.Timestamp
+			return nil
+		}
+		before := MembershipPower(st.Members)
 		delete(st.Members, p.NodeID)
+		after := MembershipPower(st.Members)
+		// Refuse emptying the usable validator set (would brick CometBFT).
+		if len(before) > 0 && len(after) == 0 {
+			st.Members[p.NodeID] = rec
+			return fmt.Errorf("%w: cannot leave the last validator (node_id=%s)", ErrLastValidator, p.NodeID)
+		}
+		st.Tombstones[MemberTomb(p.NodeID)] = tx.Timestamp
 		return nil
 
 	default:
 		return fmt.Errorf("unsupported tx type %s", tx.Type)
 	}
 }
+
+// ErrLastValidator is returned when LeaveMember would remove the last usable
+// validator (MembershipPower would become empty). CometBFT cannot make progress
+// with an empty validator set.
+var ErrLastValidator = fmt.Errorf("last validator")
 
 // MembershipPower returns pubkey-hex → equal voting power for members with
 // usable 32-byte Ed25519 public keys (same mapping CometBFT validators use).
@@ -154,4 +174,28 @@ func MembershipPower(members map[string]MemberRecord) map[string]int64 {
 		out[m.PublicKey] = power
 	}
 	return out
+}
+
+// CanLeaveMember reports whether leaving nodeID is safe given current members.
+// Returns nil if leave is allowed (including idempotent leave of an unknown id).
+func CanLeaveMember(members map[string]MemberRecord, nodeID string) error {
+	if nodeID == "" {
+		return fmt.Errorf("member node_id is required")
+	}
+	if _, ok := members[nodeID]; !ok {
+		return nil
+	}
+	before := MembershipPower(members)
+	next := make(map[string]MemberRecord, len(members))
+	for k, v := range members {
+		if k == nodeID {
+			continue
+		}
+		next[k] = v
+	}
+	after := MembershipPower(next)
+	if len(before) > 0 && len(after) == 0 {
+		return fmt.Errorf("%w: cannot leave the last validator (node_id=%s)", ErrLastValidator, nodeID)
+	}
+	return nil
 }

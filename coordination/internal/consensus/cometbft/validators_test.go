@@ -104,3 +104,40 @@ func TestMembershipPowerByPubKey(t *testing.T) {
 		t.Fatalf("power map: %+v", m)
 	}
 }
+
+func TestDiffValidatorUpdatesLeavingNodeDeterminism(t *testing.T) {
+	kpA, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kpB, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aHex := hex.EncodeToString(kpA.PublicKey)
+	bHex := hex.EncodeToString(kpB.PublicKey)
+	cur := map[string]int64{aHex: DefaultValidatorPower, bHex: DefaultValidatorPower}
+	des := map[string]int64{aHex: DefaultValidatorPower} // B left
+
+	uA := DiffValidatorUpdates(cur, des, aHex)
+	uB := DiffValidatorUpdates(cur, des, bHex) // leaving node
+	if len(uA) != 1 || uA[0].Power != 0 {
+		t.Fatalf("A updates: %+v", uA)
+	}
+	if len(uB) != 1 || uB[0].Power != 0 {
+		t.Fatalf("B (leaving) must emit same remove: %+v", uB)
+	}
+	if hex.EncodeToString(uA[0].PubKey.GetEd25519()) != bHex {
+		t.Fatal("A should remove B")
+	}
+	if hex.EncodeToString(uB[0].PubKey.GetEd25519()) != bHex {
+		t.Fatal("B should remove self")
+	}
+
+	// Still refuse replacing local with an unrelated key.
+	kpC, _ := identity.Generate()
+	cHex := hex.EncodeToString(kpC.PublicKey)
+	if u := DiffValidatorUpdates(map[string]int64{aHex: 10}, map[string]int64{cHex: 10}, aHex); u != nil {
+		t.Fatalf("must not replace local with unrelated key: %+v", u)
+	}
+}

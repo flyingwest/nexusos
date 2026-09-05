@@ -250,3 +250,19 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 **Rationale**: Membership txs + dynamic validators + two-node e2e unblocked cutting over the default. Operators who need the old path can opt in explicitly during the window.
 
 **Status**: Accepted
+
+
+---
+
+## 2026-09-05 – Safe CometBFT leave / eviction
+
+**Decision**: Treat `LeaveMember` as a first-class, safe membership path:
+
+1. **Validator power 0** via `FinalizeBlock.ValidatorUpdates` when ledger Members no longer include the peer.
+2. **Member tombstone** `member:<id>` so AppHash reflects leave after the Members entry is removed.
+3. **Refuse last usable validator** in `ledger.ApplyTx` / `CanLeaveMember` (HTTP `409`) so leave cannot brick the chain.
+4. **Operator paths**: `DELETE /v1/members/{id}` (evict) and `POST /v1/cluster/leave` (self-leave), both API-token auth; join-token stays join/pair-only. CLI: `nexusctl members rm`, `nexusctl leave`.
+
+**Rationale**: Expand-only membership left operators without a permissioned way to shrink the validator set. Last-validator refusal + tombstones close the safety gap without Phase 3 scope or removing hash-chain.
+
+**Status**: Accepted

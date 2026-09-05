@@ -100,21 +100,42 @@ func ValidatorUpdatesFromMembership(members *membership.Store) []abcitypes.Valid
 //   - If desired is empty, returns nil (preserve genesis / current set). This
 //     keeps single-node FilePV voting when membership is open/empty or has no keys.
 //   - Never returns an update set that would leave zero validators with power > 0.
-//   - If localPubKeyHex is non-empty and not in desired, returns nil so we never
-//     replace the sole signing key with identity keys the local FilePV cannot use.
-//   - Removals use power 0.
+//   - If localPubKeyHex is non-empty and not in desired: allow only deterministic
+//     self-removal (desired ⊆ current and every non-local current key stays).
+//     Refuse replacing the FilePV set with unrelated keys.
+//   - Removals use power 0 (LeaveMember / eviction). Active validators may remove
+//     peers; non-validator locals may only expand (desired ⊇ current).
+//   - Ledger ApplyTx refuses LeaveMember that would empty MembershipPower, so
+//     desired should not collapse to empty via a successful leave tx.
 func DiffValidatorUpdates(current, desired map[string]int64, localPubKeyHex string) []abcitypes.ValidatorUpdate {
 	if len(desired) == 0 {
 		return nil
 	}
 	if localPubKeyHex != "" {
 		if _, ok := desired[localPubKeyHex]; !ok {
-			return nil
-		}
-		// If this node is not yet an active validator, only allow pure expansions
-		// (desired must contain every current key). Prevents a freshly started peer
-		// whose membership is still {self} from proposing to replace genesis.
-		if _, localActive := current[localPubKeyHex]; !localActive && len(current) > 0 {
+			// Local not in desired: allow only when this is a deterministic
+			// self-removal (or removal of local plus no other churn) so the
+			// leaving node emits the same ValidatorUpdates as remaining peers.
+			// Refuse if desired introduces keys absent from current (would
+			// replace the FilePV set with keys this node cannot sign with).
+			for k := range desired {
+				if _, inCurrent := current[k]; !inCurrent {
+					return nil
+				}
+			}
+			for k := range current {
+				if k == localPubKeyHex {
+					continue
+				}
+				if _, still := desired[k]; !still {
+					return nil // would also drop other validators — unsafe/ambiguous
+				}
+			}
+			// Fall through: compute power-0 removal of local (and only local).
+		} else if _, localActive := current[localPubKeyHex]; !localActive && len(current) > 0 {
+			// If this node is not yet an active validator, only allow pure expansions
+			// (desired must contain every current key). Prevents a freshly started peer
+			// whose membership is still {self} from proposing to replace genesis.
 			for k := range current {
 				if _, ok := desired[k]; !ok {
 					return nil

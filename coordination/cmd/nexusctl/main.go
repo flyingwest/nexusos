@@ -42,6 +42,7 @@ func main() {
 		cmdMembers(),
 		cmdPeers(),
 		cmdPair(),
+		cmdLeave(),
 		cmdSync(),
 		cmdChain(),
 	)
@@ -320,7 +321,7 @@ func cmdMembers() *cobra.Command {
 	}
 	c.AddCommand(&cobra.Command{
 		Use:   "rm [node-id]",
-		Short: "Remove a member",
+		Short: "Evict a member (LeaveMember via API token; refuses last validator)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return doJSON("DELETE", "/v1/members/"+args[0], nil, nil)
@@ -367,6 +368,16 @@ func cmdPair() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return doJSON("POST", "/v1/cluster/pair", map[string]string{"url": args[0]}, nil)
+		},
+	}
+}
+
+func cmdLeave() *cobra.Command {
+	return &cobra.Command{
+		Use:   "leave",
+		Short: "Self-leave: LeaveMember for this node (API token; refuses last validator)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doJSON("POST", "/v1/cluster/leave", map[string]string{}, nil)
 		},
 	}
 }

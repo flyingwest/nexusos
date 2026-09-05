@@ -102,7 +102,9 @@ type State struct {
 	// HTTP snapshot sync must not merge this field — see MergeState.
 	Members map[string]MemberRecord `json:"members,omitempty"`
 	// Tombstones records deletes so peer merge does not resurrect removed objects.
-	// Key format: "container:<id>", "migration:<id>".
+	// Key format: "container:<id>", "migration:<id>", "member:<id>".
+	// Member leave stamps member:<id> so AppHash reflects eviction even after
+	// the Members map entry is removed.
 	Tombstones map[string]time.Time `json:"tombstones,omitempty"`
 }
 
@@ -120,3 +122,4 @@ func NewState() *State {
 
 func ContainerTomb(id string) string { return "container:" + id }
 func MigrationTomb(id string) string { return "migration:" + id }
+func MemberTomb(id string) string    { return "member:" + id }

@@ -80,6 +80,19 @@ MigrationRecord {
 }
 ```
 
+### Member (consensus-ordered)
+```text
+Member {
+  node_id          : string
+  public_key       : string          // 32-byte Ed25519 hex
+  addresses        : []string
+  label            : string
+  updated_at       : timestamp
+}
+```
+
+Tombstone keys include `member:<node_id>` after LeaveMember (in addition to `container:` / `migration:`).
+
 ### ResourceSpec (shared)
 ```text
 ResourceSpec {
@@ -97,6 +110,8 @@ On-chain today (CometBFT ABCI / hash-chain):
 - RegisterImage / VerifyImage
 - CreateContainer / UpdateContainer / RemoveContainer
 - JoinMember / LeaveMember (permissioned membership; drives CometBFT validators)
+  - LeaveMember stamps tombstone key `member:<node_id>` and refuses leaving the last usable validator
+
 
 Still off-chain (HTTP snapshot / local):
 

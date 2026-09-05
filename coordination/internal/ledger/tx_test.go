@@ -116,4 +116,20 @@ func TestJoinAndLeaveMemberApply(t *testing.T) {
 	if _, ok := st.Members[kpB.NodeID]; ok {
 		t.Fatal("B should be gone")
 	}
+	if _, ok := st.Tombstones[MemberTomb(kpB.NodeID)]; !ok {
+		t.Fatal("member tombstone missing")
+	}
+	if err := CanLeaveMember(st.Members, kpA.NodeID); err == nil {
+		t.Fatal("expected last-validator refuse")
+	}
+	last, err := NewTx(kpA, MsgLeaveMember, MemberPayload{NodeID: kpA.NodeID}, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTx(st, last); err == nil {
+		t.Fatal("expected ApplyTx to refuse leaving last validator")
+	}
+	if _, ok := st.Members[kpA.NodeID]; !ok {
+		t.Fatal("last validator must remain after refused leave")
+	}
 }
