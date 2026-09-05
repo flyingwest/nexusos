@@ -71,10 +71,18 @@ Auth: same API bearer token (+ TLS) as Phase 2.
 ```bash
 cd coordination && go test ./...
 ./scripts/e2e-workload-mock.sh
+./scripts/e2e-workload-multinode.sh  # two-node CometBFT + cross-node placements
 ./scripts/e2e-cometbft-two-node.sh   # unchanged two-node consensus
+# or: make e2e-workload / make e2e-workload-multinode
 ```
+
+The multi-node harness (`scripts/e2e-workload-multinode.sh`) starts two
+coordinators with shared genesis (`--cometbft-genesis-from`), pairs membership,
+syncs Online heartbeats, creates a workload with `replicas=2`, and asserts
+ledger `current_node` differs across replicas plus local mock runtime containers
+on both nodes. Optional scale up/down is included.
 
 ## Deferred
 
 Rolling updates, affinities/anti-affinities, bin-packing by resources, UI,
-migration/CRIU, multi-node e2e for workloads, permissionless scheduling.
+migration/CRIU, permissionless scheduling.
