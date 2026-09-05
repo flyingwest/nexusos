@@ -92,7 +92,7 @@ Deliverables:
 - [ ] Basic rolling updates (deferred)
 - [x] Integration with the ledger (CometBFT txs; AppHash includes workloads)
 
-**Exit criteria**: User can declare a Workload with N replicas and the system places and maintains them across the permissioned cluster. ✅ Met for single-node / mock; multi-node workload e2e optional follow-up. See `docs/phase3-orchestration.md`.
+**Exit criteria**: User can declare a Workload with N replicas and the system places and maintains them across the permissioned cluster. ✅ Met (single-node mock + two-node CometBFT multinode e2e). See `docs/phase3-orchestration.md`.
 
 ---
 

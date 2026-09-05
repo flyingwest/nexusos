@@ -133,6 +133,7 @@ containerd remains supported via `--mock=false` but is **not** required for CI o
 ```bash
 ./bin/coordinator --dev --mock   # CometBFT by default
 ./scripts/e2e-cometbft-two-node.sh, e2e-workload-mock.sh   # two-node CometBFT mock harness (genesis-from + pair-after-start)
+./scripts/e2e-workload-multinode.sh  # Phase 3: workloads across two CometBFT nodes (make e2e-workload-multinode)
 ./scripts/e2e-two-node-mock.sh       # thin wrapper → e2e-cometbft-two-node.sh
 ```
 
