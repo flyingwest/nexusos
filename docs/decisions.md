@@ -205,3 +205,14 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 **Rationale**: Phase 2 freeze deferred full BFT; the hash-chain proved ordered attributable writes. The next honest increment is proving CometBFT can drive the **same** ledger schema without a cutover. In-process ABCI keeps types and tests local; a socket harness (`cmd/cometbft-abci-harness`) documents sidecar attach for a later PR. Security bar (API token + join-token + TLS outside `--dev`) is unchanged.
 
 **Status**: Accepted (spike)
+
+---
+
+## 2026-09-04 – CometBFT in-process node + mempool Submit
+
+**Decision**: Advance the CometBFT embed from ABCI-only spike to an **in-process CometBFT node** (`node.New` + `proxy.NewLocalClientCreator`) when `--consensus-engine=cometbft` / `--cometbft`. Persist under `<data-dir>/cometbft/`. Wire operator image/placement commits through **BroadcastTxCommit** with **no silent local-upsert fallback**. Expose `--cometbft-rpc` / `--cometbft-p2p` (defaults `127.0.0.1:26657` / `26656`). Ship **membership → suggested validator** scaffolding (`validators-from-membership.json`, `ValidatorUpdatesFromMembership`) but keep genesis as the local FilePV (single-node); defer dynamic EndBlock validator updates and multi-validator P2P. Default engine remains **hashchain**.
+
+**Rationale**: The spike proved ledger.Tx over ABCI; operators still got silent local upserts with `--cometbft`. A single-node in-process path unblocks real mempool commits for `--dev/mock` without a sidecar, while honest docs cover the validator-sync gap. Full mesh + EndBlock is a larger follow-up than this PR.
+
+**Status**: Accepted
+
