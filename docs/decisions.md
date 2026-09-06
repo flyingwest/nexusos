@@ -343,3 +343,19 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 **Rationale**: Cold migration proves coordination + placement integrity without the complexity of live CRIU. Mock+API+ledger is shippable on every CI host; real CRIU remains a documented host hook.
 
 **Status**: Accepted
+
+
+---
+
+## 2026-09-05 – Operator UI (embedded vanilla SPA)
+
+**Decision**: Ship a practical **operator web UI** as **static assets embedded in the coordinator** (`GET /ui/`), talking only to existing HTTPS JSON APIs.
+
+1. **Embed over separate server**: one binary serves API + UI; `ui/` at repo root is a symlink to `coordination/internal/api/httpapi/ui/`.
+2. **Vanilla JS** (no React/Vue/npm build) for reviewability and zero toolchain weight.
+3. **Security**: `/ui/*` is unauthenticated shell; bearer token stays in browser `localStorage`; never bake credentials into the image. TLS/token model unchanged; document browser vs `nexusctl --insecure` for `--dev` certs.
+4. **Scope**: dashboard (nodes/members/peers/ledger), containers start/stop, workloads create/scale/update strategy + placement, Phase 4 **cold** migrate propose/list. No live migration UI; no new orchestration semantics.
+
+**Rationale**: PROJECT_SUMMARY positions UI + structured state as the primary interface. Embedding keeps the operator path identical to the hardened API. Minimal stack matches "ship working increments" and easy review.
+
+**Status**: Accepted
