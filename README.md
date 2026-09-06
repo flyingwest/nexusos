@@ -8,7 +8,7 @@ The shared ledger tracks **container image integrity** and **which containers ru
 
 Native orchestration exists, but it is secondary to the distributed OS foundation.
 
-> **Status**: Phase 2 **FROZEN** + **Phase 3 workloads** + **Phase 4 cold migration (incremental)**. Permissioned peer ledger sync, required join-token + API token + TLS. **Consensus engine is CometBFT only** (in-process) — see [docs/cometbft-spike.md](docs/cometbft-spike.md). Declarative workloads — see [docs/phase3-orchestration.md](docs/phase3-orchestration.md). Cold migration (mock + CRIU capability hook) — see [docs/phase4-migration.md](docs/phase4-migration.md). Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
+> **Status**: Phase 2 **FROZEN** + **Phase 3 workloads** + **Phase 4 cold migration (incremental)**. Permissioned peer ledger sync, required join-token + API token + TLS. **Consensus engine is CometBFT only** (in-process) — see [docs/cometbft-spike.md](docs/cometbft-spike.md). Declarative workloads — see [docs/phase3-orchestration.md](docs/phase3-orchestration.md). Cold migration (mock + CRIU capability hook) — see [docs/phase4-migration.md](docs/phase4-migration.md). Embedded **operator UI** at `/ui/` — see [docs/operator-ui.md](docs/operator-ui.md). Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
 
 ---
 
@@ -62,6 +62,12 @@ For local experiments only, pass `--dev` (alias `--insecure-dev`): allows empty 
 ```bash
 ./bin/coordinator --dev --mock --listen :8080 \
   --api-token secret --join-token cluster
+```
+
+Open the operator UI (same origin; paste the API token under Settings):
+
+```text
+https://127.0.0.1:8080/ui/
 ```
 
 ```bash
@@ -147,6 +153,7 @@ nexusos/
 ├── README.md
 ├── LICENSE                 # Apache 2.0
 ├── Makefile
+├── ui/                     # symlink → coordination/.../httpapi/ui (operator SPA)
 ├── docs/
 │   ├── architecture.md
 │   ├── roadmap.md
@@ -154,6 +161,8 @@ nexusos/
 │   ├── decisions.md
 │   ├── phase2-freeze.md    # Phase 2 exit / freeze checklist
 │   ├── phase3-orchestration.md  # Workloads / scheduler / reconciler
+│   ├── phase4-migration.md     # Cold migration (CRIU/mock)
+│   ├── operator-ui.md          # Embedded operator web UI
 │   ├── node-image.md       # Debian Bookworm node image build/boot
 │   └── cometbft-spike.md   # CometBFT embed (sole consensus engine)
 ├── coordination/           # Go module – coordination service

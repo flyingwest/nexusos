@@ -109,13 +109,27 @@ Deliverables:
 
 ---
 
+## Operator UI (cross-cutting)
+**Goal**: Primary operator interface via UI + API + structured state (not YAML-first).
+
+Deliverables:
+- [x] Embedded vanilla SPA at `/ui/` (dashboard, containers, workloads, cold migrations, settings)
+- [x] Docs + decision log (`docs/operator-ui.md`)
+- [x] CI embed smoke (`TestOperatorUIEmbeddedAndPublic`)
+- [ ] Richer placement / image integrity visualizations
+- [ ] Optional multi-coordinator cluster picker polish
+
+**Exit criteria (increment)**: Operator can drive day-2 actions through the UI against the existing HTTPS API without a separate front-end server. Met for shippable embed. See `docs/operator-ui.md`.
+
+---
+
 ## Phase 5 – Hardening & Permissionless Path
 **Goal**: Production readiness and opening toward permissionless mode.
 
 - Improved security model
 - Observability, upgrades, packaging
 - Basic permissionless membership (experimental)
-- Documentation and operator guides
+- Documentation and operator guides (including operator UI)
 
 ---
 

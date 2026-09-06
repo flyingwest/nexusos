@@ -66,3 +66,17 @@ func TestWithAuthBypassesCometBFTBootstrap(t *testing.T) {
 		t.Fatalf("bootstrap should bypass API middleware (handler auth), got %d", rr.Code)
 	}
 }
+
+func TestWithAuthBypassesOperatorUI(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ui/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := withAuth("secret", mux)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("operator UI should bypass API middleware, got %d", rr.Code)
+	}
+}

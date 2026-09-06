@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NexusOS Operator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">Nexus<span>OS</span> Operator</div>
+      <nav class="nav" id="nav">
+        <button type="button" data-view="dashboard" class="active">Dashboard</button>
+        <button type="button" data-view="containers">Containers</button>
+        <button type="button" data-view="workloads">Workloads</button>
+        <button type="button" data-view="migrations">Migrations</button>
+        <button type="button" data-view="settings">Settings</button>
+      </nav>
+      <div class="conn">
+        <span class="dot" id="conn-dot"></span>
+        <span id="conn-label">disconnected</span>
+        <button type="button" class="btn secondary sm" id="btn-refresh">Refresh</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="error-banner" id="error-banner"></div>
+
+      <section id="view-dashboard" class="view">
+        <div class="panel">
+          <h2>Cluster overview</h2>
+          <p class="hint">Node health, peers/members, and ledger summary from the coordinator API.</p>
+          <div class="grid" id="dash-stats"></div>
+        </div>
+        <div class="panel">
+          <h2>This node</h2>
+          <div id="dash-node" class="empty">—</div>
+        </div>
+        <div class="panel">
+          <h2>Nodes</h2>
+          <div id="dash-nodes"></div>
+        </div>
+        <div class="panel">
+          <h2>Members</h2>
+          <div id="dash-members"></div>
+        </div>
+        <div class="panel">
+          <h2>Peers</h2>
+          <div id="dash-peers"></div>
+        </div>
+        <div class="panel">
+          <h2>Ledger summary</h2>
+          <div id="dash-ledger"></div>
+        </div>
+      </section>
+
+      <section id="view-containers" class="view" hidden>
+        <div class="panel">
+          <h2>Containers</h2>
+          <p class="hint">Local runtime containers on this coordinator (start / stop / remove).</p>
+          <div class="toolbar">
+            <button type="button" class="btn" id="btn-start-container">Start container</button>
+          </div>
+          <div id="containers-table"></div>
+        </div>
+        <div class="panel">
+          <h2>Ledger placement</h2>
+          <p class="hint">Network-wide placement from <code>GET /v1/ledger</code>.</p>
+          <div id="placement-table"></div>
+        </div>
+      </section>
+
+      <section id="view-workloads" class="view" hidden>
+        <div class="panel">
+          <h2>Workloads</h2>
+          <p class="hint">Create, scale, and update strategy. Replica placement comes from the ledger.</p>
+          <div class="toolbar">
+            <button type="button" class="btn" id="btn-create-workload">Create workload</button>
+          </div>
+          <div id="workloads-table"></div>
+        </div>
+      </section>
+
+      <section id="view-migrations" class="view" hidden>
+        <div class="panel">
+          <h2>Migrations</h2>
+          <p class="hint">Phase 4 cold migrate only (propose via API). No live migration UI.</p>
+          <div class="toolbar">
+            <button type="button" class="btn" id="btn-propose-migrate">Propose migrate</button>
+          </div>
+          <div id="migrations-table"></div>
+        </div>
+      </section>
+
+      <section id="view-settings" class="view" hidden>
+        <div class="panel">
+          <h2>API connection</h2>
+          <div class="note">
+            Tokens are stored only in this browser’s <code>localStorage</code> — never baked into the coordinator image.
+            For <code>--dev</code> / self-signed TLS, the browser must trust the cert (or you accept the warning once);
+            the UI cannot set <code>InsecureSkipVerify</code> like <code>nexusctl --insecure</code>.
+          </div>
+          <div class="form-row">
+            <label>API base URL
+              <input type="url" id="cfg-base" placeholder="https://127.0.0.1:8080" size="36" />
+            </label>
+            <label>Bearer token
+              <input type="password" id="cfg-token" placeholder="API token" size="28" autocomplete="off" />
+            </label>
+            <button type="button" class="btn" id="btn-save-settings">Save &amp; connect</button>
+            <button type="button" class="btn secondary" id="btn-clear-token">Clear token</button>
+          </div>
+          <p class="hint">Default base when served from the coordinator: same origin (empty → <code>window.location.origin</code>).</p>
+          <div id="settings-status" class="empty"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modal">
+    <div class="modal" id="modal-body"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,10 +1,15 @@
-.PHONY: build run test tidy clean install coordinator nexusctl e2e e2e-workload e2e-workload-multinode e2e-migration image image-devsmoke qemu-smoke qemu-e2e test-provision
+.PHONY: build run test tidy clean install coordinator nexusctl e2e e2e-workload e2e-workload-multinode e2e-migration image image-devsmoke qemu-smoke qemu-e2e test-provision ui
 
 COORD_DIR := coordination
 
 build: coordinator nexusctl
 
-coordinator:
+# Operator UI is embedded from coordination/internal/api/httpapi/ui (repo-root ui/ symlink).
+ui:
+	@test -f coordination/internal/api/httpapi/ui/index.html
+	@echo "operator UI assets OK (embedded at build via go:embed)"
+
+coordinator: ui
 	cd $(COORD_DIR) && go build -o ../bin/coordinator ./cmd/coordinator
 
 nexusctl:

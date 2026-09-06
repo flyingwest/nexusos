@@ -19,6 +19,10 @@ jobs:
           cache-dependency-path: coordination/go.sum
       - name: go test
         run: go test ./...
+      - name: operator UI embed smoke
+        run: |
+          test -f internal/api/httpapi/ui/index.html
+          go test ./internal/api/httpapi/ -run TestOperatorUIEmbeddedAndPublic -count=1
       - name: go build
         run: |
           go build -o ../bin/coordinator ./cmd/coordinator

@@ -131,6 +131,13 @@ func New(opts Options) *Server {
 	mux.HandleFunc("POST /v1/net/pair", s.handleNetPair)
 	mux.HandleFunc("POST /v1/net/sync", s.handleNetSync)
 
+	// Operator UI (embedded static). Unauthenticated; API calls use bearer token from the browser.
+	ui := operatorUIHandler()
+	mux.Handle("GET /ui/", ui)
+	mux.Handle("GET /ui", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusFound)
+	}))
+
 	handler := withLogging(withAuth(opts.APIToken, mux))
 	s.server = &http.Server{
 		Addr:              opts.Addr,
