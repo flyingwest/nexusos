@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -166,4 +169,95 @@ func (m *MockRuntime) Pull(ctx context.Context, ref string) (*ImageInfo, error) 
 
 func (m *MockRuntime) Close() error {
 	return nil
+}
+
+// SupportsCheckpointRestore always true for the mock (simulates CRIU).
+func (m *MockRuntime) SupportsCheckpointRestore() bool { return true }
+
+// Checkpoint writes a fake CRIU-like artifact (JSON meta + marker) under destDir.
+func (m *MockRuntime) Checkpoint(ctx context.Context, id string, destDir string) (*CheckpointArtifact, error) {
+	m.mu.RLock()
+	c, ok := m.containers[id]
+	if !ok {
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("container %q not found", id)
+	}
+	meta := CheckpointMeta{
+		ContainerID: c.ID,
+		Name:        c.Name,
+		ImageRef:    c.ImageRef,
+		ImageDigest: c.ImageDigest,
+		Labels:      c.Labels,
+		State:       c.State,
+	}
+	m.mu.RUnlock()
+
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return nil, err
+	}
+	metaPath := filepath.Join(destDir, "nexusos-checkpoint.json")
+	raw, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(metaPath, raw, 0o644); err != nil {
+		return nil, err
+	}
+	// Marker file so Restore can verify a mock dump.
+	marker := []byte("nexusos-mock-criu-v1\n" + id + "\n")
+	if err := os.WriteFile(filepath.Join(destDir, "dump.marker"), marker, 0o644); err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(append(raw, marker...))
+	hash := hex.EncodeToString(sum[:])
+
+	// Cold migration: stop the source container after checkpoint.
+	m.mu.Lock()
+	if ctr, ok := m.containers[id]; ok {
+		ctr.State = "stopped"
+	}
+	m.mu.Unlock()
+
+	return &CheckpointArtifact{Hash: hash, Dir: destDir, Meta: meta}, nil
+}
+
+// Restore recreates a container from a mock checkpoint artifact.
+func (m *MockRuntime) Restore(ctx context.Context, opts RestoreOptions) (*ContainerInfo, error) {
+	meta := opts.Meta
+	if opts.CheckpointDir != "" {
+		b, err := os.ReadFile(filepath.Join(opts.CheckpointDir, "nexusos-checkpoint.json"))
+		if err == nil {
+			_ = json.Unmarshal(b, &meta)
+		}
+		if _, err := os.Stat(filepath.Join(opts.CheckpointDir, "dump.marker")); err != nil {
+			return nil, fmt.Errorf("invalid mock checkpoint at %s: missing dump.marker", opts.CheckpointDir)
+		}
+	}
+	id := opts.ID
+	if id == "" {
+		id = meta.ContainerID
+	}
+	if id == "" {
+		return nil, fmt.Errorf("restore: container id required")
+	}
+	ref := meta.ImageRef
+	if ref == "" {
+		ref = meta.ImageDigest
+	}
+	if ref == "" {
+		return nil, fmt.Errorf("restore: image ref/digest required in checkpoint meta")
+	}
+	// Ensure image exists in mock registry.
+	if _, err := m.VerifyImage(ctx, ref); err != nil {
+		if _, err := m.Pull(ctx, ref); err != nil {
+			return nil, err
+		}
+	}
+	return m.Start(ctx, StartOptions{
+		ID:          id,
+		Name:        meta.Name,
+		ImageRef:    ref,
+		ImageDigest: meta.ImageDigest,
+		Labels:      meta.Labels,
+	})
 }

@@ -327,3 +327,19 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 
 **Status**: Accepted
 
+
+---
+
+## 2026-09-05 – Phase 4 cold migration (CRIU)
+
+**Decision**: Ship **cold** migration as CometBFT ledger txs + coordinator controller:
+
+1. **Ledger**: `ProposeMigration` / `CompleteMigration` / `FailMigration`; container `Desired=Migrating` during flight; AppHash already covers `migrations`.
+2. **Controller**: propose → checkpoint source → transfer artifact (JSON/base64 peer RPC) → restore dest → complete; on failure submit `FailMigration` (placement stays on `from_node`).
+3. **Runtime**: mock always supports checkpoint/restore; containerd path gated on `criu check` and returns `ErrCheckpointUnsupported` when absent.
+4. **API/CLI**: `POST /v1/migrations`; `nexusctl migrations migrate --to`.
+5. **Not in this PR**: live migration, UI, streaming artifact store, full CRIU image restore parity, separate AcceptMigration ack.
+
+**Rationale**: Cold migration proves coordination + placement integrity without the complexity of live CRIU. Mock+API+ledger is shippable on every CI host; real CRIU remains a documented host hook.
+
+**Status**: Accepted

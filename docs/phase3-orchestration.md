@@ -101,4 +101,4 @@ on both nodes. Optional scale up/down is included. The mock e2e also exercises a
 ## Deferred
 
 Affinities/anti-affinities, bin-packing by resources, maxSurge / readiness gates,
-UI, migration/CRIU, permissionless scheduling.
+UI, live migration, permissionless scheduling. (Cold migration: see `docs/phase4-migration.md`.)

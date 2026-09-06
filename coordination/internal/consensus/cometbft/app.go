@@ -204,6 +204,7 @@ func (a *App) validateBytes(raw []byte) (ledger.Tx, uint32, string) {
 		ledger.MsgRemoveContainer,
 		ledger.MsgCreateWorkload, ledger.MsgUpdateWorkload,
 		ledger.MsgScaleWorkload, ledger.MsgDeleteWorkload,
+		ledger.MsgProposeMigration, ledger.MsgCompleteMigration, ledger.MsgFailMigration,
 		ledger.MsgJoinMember, ledger.MsgLeaveMember:
 		// ok
 	default:

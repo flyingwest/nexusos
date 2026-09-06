@@ -48,6 +48,7 @@ func main() {
 		cmdSync(),
 		cmdCometBFT(),
 		cmdWorkloads(),
+		cmdMigrations(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -562,6 +563,56 @@ func cmdWorkloads() *cobra.Command {
 			return doJSON(http.MethodDelete, "/v1/workloads/"+args[0], nil, nil)
 		},
 	})
+
+	return c
+}
+
+func cmdMigrations() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "migrations",
+		Short: "Cold-migrate containers between nodes (Phase 4)",
+	}
+
+	c.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List migration records",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doGET("/v1/migrations", nil)
+		},
+	})
+
+	c.AddCommand(&cobra.Command{
+		Use:   "get [id]",
+		Short: "Get a migration record",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doGET("/v1/migrations/"+args[0], nil)
+		},
+	})
+
+	migrate := &cobra.Command{
+		Use:   "migrate [container-id]",
+		Short: "Cold-migrate a container to another node",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			to, _ := cmd.Flags().GetString("to")
+			from, _ := cmd.Flags().GetString("from")
+			if to == "" {
+				return fmt.Errorf("--to node_id is required")
+			}
+			payload := map[string]any{
+				"container_id": args[0],
+				"to_node":      to,
+			}
+			if from != "" {
+				payload["from_node"] = from
+			}
+			return doJSON(http.MethodPost, "/v1/migrations", payload, nil)
+		},
+	}
+	migrate.Flags().String("to", "", "destination node_id")
+	migrate.Flags().String("from", "", "optional source node_id (default: ledger current_node)")
+	c.AddCommand(migrate)
 
 	return c
 }

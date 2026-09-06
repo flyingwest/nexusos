@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -64,4 +65,46 @@ type StartOptions struct {
 	Args        []string
 	CPUShares   uint64
 	MemoryLimit int64 // bytes
+}
+
+// CheckpointMeta describes a cold-migration artifact (mock or CRIU dump).
+type CheckpointMeta struct {
+	ContainerID string            `json:"container_id"`
+	Name        string            `json:"name,omitempty"`
+	ImageRef    string            `json:"image_ref,omitempty"`
+	ImageDigest string            `json:"image_digest,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	State       string            `json:"state,omitempty"`
+}
+
+// CheckpointArtifact is the on-disk (or in-memory) result of Checkpoint.
+type CheckpointArtifact struct {
+	Hash string         `json:"hash"` // sha256 hex of artifact bytes
+	Dir  string         `json:"dir"`  // local directory containing the dump
+	Meta CheckpointMeta `json:"meta"`
+}
+
+// RestoreOptions controls Restore from a cold checkpoint.
+type RestoreOptions struct {
+	ID            string // container id on the destination
+	CheckpointDir string
+	Meta          CheckpointMeta // required for mock; CRIU may re-derive
+}
+
+// ErrCheckpointUnsupported is returned when CRIU/checkpoint is unavailable.
+var ErrCheckpointUnsupported = errors.New("checkpoint/restore not supported on this runtime")
+
+// CheckpointRestorer is an optional capability for Phase 4 cold migration.
+// MockRuntime always supports it; ContainerdRuntime supports it only when
+// the host has a working CRIU binary (see SupportsCheckpointRestore).
+type CheckpointRestorer interface {
+	SupportsCheckpointRestore() bool
+	Checkpoint(ctx context.Context, id string, destDir string) (*CheckpointArtifact, error)
+	Restore(ctx context.Context, opts RestoreOptions) (*ContainerInfo, error)
+}
+
+// AsCheckpointRestorer returns the CheckpointRestorer if rt implements it.
+func AsCheckpointRestorer(rt Runtime) (CheckpointRestorer, bool) {
+	cr, ok := rt.(CheckpointRestorer)
+	return cr, ok
 }

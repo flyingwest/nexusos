@@ -11,6 +11,7 @@ import (
 	"github.com/nexusos/coordination/internal/identity"
 	"github.com/nexusos/coordination/internal/ledger"
 	"github.com/nexusos/coordination/internal/membership"
+	"github.com/nexusos/coordination/internal/orchestrate"
 	"github.com/nexusos/coordination/internal/p2p"
 	"github.com/nexusos/coordination/internal/runtime"
 	"github.com/nexusos/coordination/internal/state"
@@ -36,6 +37,7 @@ type Server struct {
 	members            *membership.Store
 	engine             *p2p.Engine
 	txSubmitter        TxSubmitter // when set (CometBFT), strict — no local upsert fallback
+	migrator           *orchestrate.MigrationController
 	joinToken          string
 	cometbftHome       string
 	cometbftP2P        string // tcp://host:port listen used for bootstrap peer string
@@ -59,6 +61,8 @@ type Options struct {
 	// TxSubmitter, when non-nil, handles image/placement commits strictly
 	// (no silent local ledger upsert on failure). Used for CometBFT.
 	TxSubmitter TxSubmitter
+	// Migrator coordinates Phase 4 cold migration (optional).
+	Migrator *orchestrate.MigrationController
 	// JoinToken authorizes GET /v1/cometbft/bootstrap (alternative to API token).
 	JoinToken string
 	// CometBFTHome / CometBFTP2P enable the shared-genesis bootstrap endpoint.
@@ -82,6 +86,7 @@ func New(opts Options) *Server {
 		members:            opts.Members,
 		engine:             opts.Engine,
 		txSubmitter:        opts.TxSubmitter,
+		migrator:           opts.Migrator,
 		joinToken:          opts.JoinToken,
 		cometbftHome:       opts.CometBFTHome,
 		cometbftP2P:        opts.CometBFTP2P,
@@ -117,6 +122,11 @@ func New(opts Options) *Server {
 	mux.HandleFunc("PUT /v1/workloads/{id}", s.handleUpdateWorkload)
 	mux.HandleFunc("DELETE /v1/workloads/{id}", s.handleDeleteWorkload)
 	mux.HandleFunc("POST /v1/workloads/{id}/scale", s.handleScaleWorkload)
+	mux.HandleFunc("GET /v1/migrations", s.handleListMigrations)
+	mux.HandleFunc("GET /v1/migrations/{id}", s.handleGetMigration)
+	mux.HandleFunc("POST /v1/migrations", s.handleCreateMigration)
+	mux.HandleFunc("POST /v1/migrations/checkpoint", s.handleMigrationCheckpoint)
+	mux.HandleFunc("POST /v1/migrations/restore", s.handleMigrationRestore)
 	mux.HandleFunc("POST /v1/net/hello", s.handleNetHello)
 	mux.HandleFunc("POST /v1/net/pair", s.handleNetPair)
 	mux.HandleFunc("POST /v1/net/sync", s.handleNetSync)

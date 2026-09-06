@@ -117,10 +117,15 @@ On-chain today (CometBFT ABCI):
   - LeaveMember stamps tombstone key `member:<node_id>` and refuses leaving the last usable validator
 
 
+On-chain (Phase 4 cold migration):
+
+- ProposeMigration / CompleteMigration / FailMigration
+  - Sets container `desired_state=Migrating` then `Running`; updates `current_node` on complete
+  - AppHash includes `migrations`
+
 Still off-chain (HTTP snapshot / local):
 
 - RegisterNode / Heartbeat (liveness)
-- ProposeMigration / AcceptMigration / CompleteMigration / FailMigration (Phase 4)
 
 ## Design Rules
 

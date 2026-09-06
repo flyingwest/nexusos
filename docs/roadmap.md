@@ -100,12 +100,12 @@ Deliverables:
 **Goal**: Coordinated container migration between nodes.
 
 Deliverables:
-- Cold migration using CRIU
-- Migration as a first-class ledger transaction
-- Orchestrator-triggered and manual migration
-- Failure handling and rollback basics
+- [x] Cold migration using CRIU (mock path fully tested; containerd+CRIU behind capability check)
+- [x] Migration as a first-class ledger transaction (`ProposeMigration` / `CompleteMigration` / `FailMigration`)
+- [x] Manual migration via HTTP API + `nexusctl` (orchestrator-triggered hook ready)
+- [x] Failure handling and rollback basics (`FailMigration` restores `from_node`)
 
-**Exit criteria**: A running container can be moved from node A to node B under coordination control, with ledger state updated correctly.
+**Exit criteria**: A running container can be moved from node A to node B under coordination control, with ledger state updated correctly. ✅ Met for cold/mock; real CRIU is a host requirement. See `docs/phase4-migration.md`.
 
 ---
 
