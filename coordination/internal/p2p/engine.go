@@ -56,7 +56,10 @@ func (e *Engine) heartbeat() {
 	}
 	if existing, ok := e.Ledger.GetNode(pub.NodeID); ok {
 		rec = existing
-		rec.Status = ledger.StatusOnline
+		// Preserve Draining (scheduling disabled / cordon); do not auto-uncordon on heartbeat.
+		if existing.Status != ledger.StatusDraining {
+			rec.Status = ledger.StatusOnline
+		}
 		rec.Mode = e.Mode
 	}
 	if e.Advertise != "" {
@@ -97,7 +100,9 @@ func (e *Engine) heardFrom(nodeID, publicKey string) {
 	}
 	if existing, ok := e.Ledger.GetNode(nodeID); ok {
 		rec = existing
-		rec.Status = ledger.StatusOnline
+		if existing.Status != ledger.StatusDraining {
+			rec.Status = ledger.StatusOnline
+		}
 		if publicKey != "" {
 			rec.PublicKey = publicKey
 		}

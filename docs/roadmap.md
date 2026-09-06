@@ -116,6 +116,7 @@ Deliverables:
 - [x] Embedded vanilla SPA at `/ui/` (dashboard, containers, workloads, cold migrations, settings)
 - [x] Docs + decision log (`docs/operator-ui.md`)
 - [x] CI embed smoke (`TestOperatorUIEmbeddedAndPublic`)
+- [x] Phase 5: version on Settings/Dashboard; node cordon/drain actions
 - [ ] Richer placement / image integrity visualizations
 - [ ] Optional multi-coordinator cluster picker polish
 
@@ -124,12 +125,17 @@ Deliverables:
 ---
 
 ## Phase 5 – Hardening & Permissionless Path
-**Goal**: Production readiness and opening toward permissionless mode.
+**Goal**: Production readiness; permissionless remains experimental / deferred.
 
-- Improved security model
-- Observability, upgrades, packaging
-- Basic permissionless membership (experimental)
-- Documentation and operator guides (including operator UI)
+Deliverables (hardening increment):
+- [x] Prometheus-style metrics (`/metrics`, `/v1/metrics`) — see `docs/phase5-hardening.md`
+- [x] Richer `/health` + `/v1/ready` + `/v1/version`
+- [x] Node cordon / drain / evacuate (Status=Draining; workload reschedule + cold migrate standalone)
+- [x] Operator UI hooks (version + drain actions) + docs
+- [ ] Permissionless membership (experimental) — **deferred** (permissioned only)
+- [ ] Packaging / upgrade automation polish
+
+**Exit criteria (hardening)**: Operators can scrape metrics, inspect version/health, and drain a node without live migration or permissionless mode. ✅ Met for this increment.
 
 ---
 

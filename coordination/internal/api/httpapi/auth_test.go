@@ -80,3 +80,39 @@ func TestWithAuthBypassesOperatorUI(t *testing.T) {
 		t.Fatalf("operator UI should bypass API middleware, got %d", rr.Code)
 	}
 }
+
+func TestWithAuthGatesMetricsByDefault(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := withAuth("secret", mux)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("metrics should require auth by default, got %d", rr.Code)
+	}
+
+	h2 := withAuth("secret", mux, authOptions{MetricsPublic: true})
+	rr2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	h2.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("metrics-public should bypass auth, got %d", rr2.Code)
+	}
+}
+
+func TestWithAuthBypassesV1Health(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := withAuth("secret", mux)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("v1/health should bypass auth, got %d", rr.Code)
+	}
+}

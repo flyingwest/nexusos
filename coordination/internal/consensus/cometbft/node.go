@@ -272,6 +272,14 @@ func PeerListenHostPort(p2pListen string) string {
 }
 
 // Stop shuts down the CometBFT node and waits for exit.
+// Height returns the ABCI app height (0 if unavailable).
+func (n *Node) Height() int64 {
+	if n == nil || n.App == nil {
+		return 0
+	}
+	return n.App.Height()
+}
+
 func (n *Node) Stop() error {
 	if n == nil || n.node == nil {
 		return nil

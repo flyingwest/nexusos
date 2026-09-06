@@ -41,6 +41,8 @@ type Server struct {
 	joinToken          string
 	cometbftHome       string
 	cometbftP2P        string // tcp://host:port listen used for bootstrap peer string
+	heightProvider     HeightProvider
+	metricsPublic      bool // when true, GET /metrics bypasses API bearer auth
 	server             *http.Server
 }
 
@@ -68,6 +70,10 @@ type Options struct {
 	// CometBFTHome / CometBFTP2P enable the shared-genesis bootstrap endpoint.
 	CometBFTHome string
 	CometBFTP2P  string
+	// HeightProvider optional CometBFT app height for health/metrics.
+	HeightProvider HeightProvider
+	// MetricsPublic when true exposes GET /metrics without bearer auth (scrape).
+	MetricsPublic bool
 }
 
 // New creates an HTTP API server.
@@ -90,11 +96,21 @@ func New(opts Options) *Server {
 		joinToken:          opts.JoinToken,
 		cometbftHome:       opts.CometBFTHome,
 		cometbftP2P:        opts.CometBFTP2P,
+		heightProvider:     opts.HeightProvider,
+		metricsPublic:      opts.MetricsPublic,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /v1/health", s.handleHealth)
+	mux.HandleFunc("GET /v1/ready", s.handleReady)
+	mux.HandleFunc("GET /v1/version", s.handleVersion)
+	mux.HandleFunc("GET /metrics", s.handleMetrics)
+	mux.HandleFunc("GET /v1/metrics", s.handleMetrics)
 	mux.HandleFunc("GET /v1/node", s.handleNode)
+	mux.HandleFunc("POST /v1/nodes/{id}/cordon", s.handleCordonNode)
+	mux.HandleFunc("POST /v1/nodes/{id}/uncordon", s.handleUncordonNode)
+	mux.HandleFunc("POST /v1/nodes/{id}/drain", s.handleDrainNode)
 	mux.HandleFunc("GET /v1/containers", s.handleListContainers)
 	mux.HandleFunc("GET /v1/containers/{id}", s.handleGetContainer)
 	mux.HandleFunc("POST /v1/containers", s.handleStartContainer)
@@ -138,7 +154,7 @@ func New(opts Options) *Server {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	}))
 
-	handler := withLogging(withAuth(opts.APIToken, mux))
+	handler := withLogging(withAuth(opts.APIToken, mux, authOptions{MetricsPublic: opts.MetricsPublic}))
 	s.server = &http.Server{
 		Addr:              opts.Addr,
 		Handler:           handler,
@@ -180,13 +196,6 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status":  "ok",
-		"node_id": s.kp.NodeID,
-	})
-}
-
 func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 	pub := s.kp.PublicJSON()
 	advertise := ""
@@ -199,7 +208,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		"mode":       s.mode,
 		"advertise":  advertise,
 		"role":       "coordinator",
-		"phase":      "3-orchestration",
+		"phase":      "5-hardening",
 		"consensus":  s.txSubmitter != nil,
 	})
 }
@@ -393,11 +402,13 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 		s.engine.Refresh()
 	}
 	nodes := s.ledger.ListNodes()
-	online, offline := 0, 0
+	online, offline, draining := 0, 0, 0
 	for _, n := range nodes {
 		switch n.Status {
 		case ledger.StatusOffline:
 			offline++
+		case ledger.StatusDraining:
+			draining++
 		default:
 			online++
 		}
@@ -410,6 +421,7 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 		"nodes":             nodes,
 		"online":            online,
 		"offline":           offline,
+		"draining":          draining,
 		"heartbeat_timeout": timeout,
 	})
 }
