@@ -121,19 +121,21 @@
   /* ---------- Dashboard ---------- */
 
   async function refreshDashboard() {
-    const [health, node, nodes, members, peers, ledger] = await Promise.all([
+    const [health, node, nodes, members, peers, ledger, version] = await Promise.all([
       api("GET", "/health"),
       api("GET", "/v1/node"),
       api("GET", "/v1/nodes"),
       api("GET", "/v1/members"),
       api("GET", "/v1/peers").catch(() => ({ peers: [] })),
       api("GET", "/v1/ledger"),
+      api("GET", "/v1/version").catch(() => ({})),
     ]);
-    state.cache = { health, node, nodes, members, peers, ledger };
+    state.cache = { health, node, nodes, members, peers, ledger, version };
 
     const nNodes = (nodes.nodes || []).length;
     const online = nodes.online != null ? nodes.online : (nodes.nodes || []).filter((n) => n.status === "Online").length;
-    const offline = nodes.offline != null ? nodes.offline : nNodes - online;
+    const offline = nodes.offline != null ? nodes.offline : (nodes.nodes || []).filter((n) => n.status === "Offline").length;
+    const draining = nodes.draining != null ? nodes.draining : (nodes.nodes || []).filter((n) => n.status === "Draining").length;
     const nMembers = (members.members || []).length;
     const nPeers = (peers.peers || []).length;
     const st = ledger || {};
@@ -145,6 +147,7 @@
     $("dash-stats").innerHTML = [
       stat("Online nodes", online),
       stat("Offline", offline),
+      stat("Draining", draining),
       stat("Members", nMembers),
       stat("Peers", nPeers),
       stat("Containers", nCtr),
@@ -160,6 +163,8 @@
       row("Advertise", esc(node.advertise || "—")) +
       row("Phase", esc(node.phase || "—")) +
       row("Consensus", node.consensus ? "yes" : "no") +
+      row("Version", esc((version && version.version) || "—")) +
+      row("Commit", esc((version && version.commit) || "—")) +
       row("Health", statusBadge(health.status)) +
       "</tbody></table>";
 
@@ -198,25 +203,56 @@
   function renderNodesTable(list) {
     if (!list.length) return '<p class="empty">No nodes on ledger yet.</p>';
     return (
-      "<table><thead><tr><th>Node</th><th>Status</th><th>Addresses</th><th>Last heartbeat</th></tr></thead><tbody>" +
+      "<table><thead><tr><th>Node</th><th>Status</th><th>Addresses</th><th>Last heartbeat</th><th>Actions</th></tr></thead><tbody>" +
       list
-        .map(
-          (n) =>
+        .map((n) => {
+          const id = n.node_id;
+          const st = String(n.status || "");
+          let actions = "";
+          if (st === "Draining") {
+            actions =
+              '<button type="button" class="btn secondary sm" data-uncordon="' +
+              esc(id) +
+              '">Uncordon</button>';
+          } else if (st !== "Offline") {
+            actions =
+              '<button type="button" class="btn secondary sm" data-cordon="' +
+              esc(id) +
+              '">Cordon</button> ' +
+              '<button type="button" class="btn secondary sm" data-drain="' +
+              esc(id) +
+              '">Drain</button>';
+          } else {
+            actions = "—";
+          }
+          return (
             "<tr><td class=\"mono truncate\" title=\"" +
-            esc(n.node_id) +
+            esc(id) +
             "\">" +
-            esc(shortId(n.node_id)) +
+            esc(shortId(id)) +
             "</td><td>" +
-            statusBadge(n.status) +
+            statusBadge(st) +
             "</td><td class=\"mono\">" +
             esc((n.addresses || []).join(", ") || "—") +
             "</td><td class=\"mono\">" +
             esc(fmtTime(n.last_heartbeat)) +
+            "</td><td>" +
+            actions +
             "</td></tr>"
-        )
+          );
+        })
         .join("") +
       "</tbody></table>"
     );
+  }
+
+  async function nodeAction(path) {
+    try {
+      await api("POST", path, {});
+      await refreshDashboard();
+    } catch (e) {
+      setError(e.message || String(e));
+    }
   }
 
   function renderMembersTable(list, open) {
@@ -719,6 +755,22 @@
       "Effective API base: " + apiBase() + (state.cfg.token ? " (token set)" : " (no token)");
   }
 
+  async function refreshSettings() {
+    fillSettingsForm();
+    try {
+      const v = await api("GET", "/v1/version");
+      $("settings-version").innerHTML =
+        "<table><tbody>" +
+        row("Version", esc(v.version || "—")) +
+        row("Commit", esc(v.commit || "—")) +
+        row("Go", esc(v.go_version || "—")) +
+        row("Module", esc(v.module || "—")) +
+        "</tbody></table>";
+    } catch (e) {
+      $("settings-version").textContent = "Unable to load version: " + (e.message || e);
+    }
+  }
+
   async function refreshAll() {
     setError("");
     try {
@@ -726,7 +778,7 @@
       else if (state.view === "containers") await refreshContainers();
       else if (state.view === "workloads") await refreshWorkloads();
       else if (state.view === "migrations") await refreshMigrations();
-      else if (state.view === "settings") fillSettingsForm();
+      else if (state.view === "settings") await refreshSettings();
       setConn(true, "connected · " + apiBase().replace(/^https?:\/\//, ""));
     } catch (e) {
       setConn(false, e.status === 401 ? "unauthorized" : "error");
@@ -762,6 +814,16 @@
     $("btn-propose-migrate").addEventListener("click", openMigrateModal);
     $("modal").addEventListener("click", (ev) => {
       if (ev.target === $("modal")) closeModal();
+    });
+    document.addEventListener("click", (ev) => {
+      const t = ev.target;
+      if (!(t instanceof HTMLElement)) return;
+      if (t.dataset.cordon) nodeAction("/v1/nodes/" + t.dataset.cordon + "/cordon");
+      if (t.dataset.uncordon) nodeAction("/v1/nodes/" + t.dataset.uncordon + "/uncordon");
+      if (t.dataset.drain) {
+        if (!confirm("Drain node " + t.dataset.drain + "? Cordon + evacuate standalone via cold migrate; workloads reschedule.")) return;
+        nodeAction("/v1/nodes/" + t.dataset.drain + "/drain");
+      }
     });
   }
 

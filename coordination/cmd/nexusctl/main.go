@@ -35,6 +35,9 @@ func main() {
 
 	root.AddCommand(
 		cmdHealth(),
+		cmdReady(),
+		cmdVersion(),
+		cmdMetrics(),
 		cmdNode(),
 		cmdNodes(),
 		cmdContainers(),
@@ -152,9 +155,39 @@ func doJSON(method, path string, in any, out any) error {
 func cmdHealth() *cobra.Command {
 	return &cobra.Command{
 		Use:   "health",
-		Short: "Check coordinator health",
+		Short: "Check coordinator health (rich summary)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return doGET("/health", nil)
+		},
+	}
+}
+
+func cmdReady() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ready",
+		Short: "Check coordinator readiness (auth required)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doGET("/v1/ready", nil)
+		},
+	}
+}
+
+func cmdVersion() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Show coordinator version / commit / Go version",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doGET("/v1/version", nil)
+		},
+	}
+}
+
+func cmdMetrics() *cobra.Command {
+	return &cobra.Command{
+		Use:   "metrics",
+		Short: "Fetch Prometheus text metrics",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doGET("/metrics", nil)
 		},
 	}
 }
@@ -170,13 +203,41 @@ func cmdNode() *cobra.Command {
 }
 
 func cmdNodes() *cobra.Command {
-	return &cobra.Command{
+	c := &cobra.Command{
 		Use:   "nodes",
-		Short: "List cluster nodes and Online/Offline status",
+		Short: "List cluster nodes and Online/Offline/Draining status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return doGET("/v1/nodes", nil)
 		},
 	}
+	c.AddCommand(&cobra.Command{
+		Use:   "cordon [node-id]",
+		Short: "Mark node Draining (no new placements)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doJSON(http.MethodPost, "/v1/nodes/"+args[0]+"/cordon", map[string]any{}, nil)
+		},
+	})
+	c.AddCommand(&cobra.Command{
+		Use:   "uncordon [node-id]",
+		Short: "Restore Online scheduling on a draining node",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doJSON(http.MethodPost, "/v1/nodes/"+args[0]+"/uncordon", map[string]any{}, nil)
+		},
+	})
+	drain := &cobra.Command{
+		Use:   "drain [node-id]",
+		Short: "Cordon and evacuate (workload reschedule + cold migrate standalone)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			evacuate, _ := cmd.Flags().GetBool("evacuate")
+			return doJSON(http.MethodPost, "/v1/nodes/"+args[0]+"/drain", map[string]any{"evacuate": evacuate}, nil)
+		},
+	}
+	drain.Flags().Bool("evacuate", true, "evacuate workloads/containers after cordon")
+	c.AddCommand(drain)
+	return c
 }
 
 func cmdContainers() *cobra.Command {

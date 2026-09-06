@@ -50,6 +50,7 @@ func main() {
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (required unless --dev)")
 	tlsKey := flag.String("tls-key", "", "TLS private key file (required unless --dev)")
 	tlsInsecurePeers := flag.Bool("tls-insecure-peers", false, "skip TLS verification when dialing peer HTTPS URLs")
+	metricsPublic := flag.Bool("metrics-public", false, "expose GET /metrics without API bearer auth (Prometheus scrape)")
 	flag.Parse()
 
 	cfg := config.Default()
@@ -104,6 +105,7 @@ func main() {
 	cfg.TLSCertFile = *tlsCert
 	cfg.TLSKeyFile = *tlsKey
 	cfg.TLSInsecureSkipVerify = *tlsInsecurePeers
+	cfg.MetricsPublic = *metricsPublic
 	if *peers != "" {
 		for _, p := range splitCSV(*peers) {
 			cfg.Peers = append(cfg.Peers, p)
@@ -166,6 +168,7 @@ func main() {
 	fmt.Printf("HB timeout  : %s\n", cfg.HeartbeatTimeout)
 	fmt.Printf("Consensus   : %v\n", cfg.Consensus)
 	fmt.Printf("Cons. engine: %s\n", cfg.ConsensusEngine)
+	fmt.Printf("Metrics pub : %v\n", cfg.MetricsPublic)
 	if cfg.CometBFTGenesisFrom != "" {
 		fmt.Printf("CMT genesis : fetch from %s\n", cfg.CometBFTGenesisFrom)
 	}
@@ -208,14 +211,22 @@ func main() {
 		}
 	}
 
-	// Register self on the ledger and membership (bootstrap)
+	// Register self on the ledger and membership (bootstrap).
+	// Preserve Draining if this node was cordoned before restart.
 	pub := kp.PublicJSON()
-	_ = ledgerStore.UpsertNode(ledger.NodeRecord{
+	selfNode := ledger.NodeRecord{
 		NodeID:    pub.NodeID,
 		PublicKey: pub.PublicKey,
 		Status:    ledger.StatusOnline,
 		Mode:      cfg.Mode,
-	})
+	}
+	if existing, ok := ledgerStore.GetNode(pub.NodeID); ok && existing.Status == ledger.StatusDraining {
+		selfNode = existing
+		selfNode.PublicKey = pub.PublicKey
+		selfNode.Mode = cfg.Mode
+		selfNode.Status = ledger.StatusDraining
+	}
+	_ = ledgerStore.UpsertNode(selfNode)
 	_ = members.Upsert(membership.Member{
 		NodeID:    pub.NodeID,
 		PublicKey: pub.PublicKey,
@@ -322,6 +333,10 @@ func main() {
 		log.Println("Migration controller ready (Phase 4 cold / CRIU-or-mock)")
 	}
 
+	var heightProv httpapi.HeightProvider
+	if cmtNode != nil {
+		heightProv = cmtNode
+	}
 	api := httpapi.New(httpapi.Options{
 		Addr:               cfg.ListenAddr,
 		APIToken:           cfg.APIToken,
@@ -340,6 +355,8 @@ func main() {
 		JoinToken:          cfg.JoinToken,
 		CometBFTHome:       cmtHome,
 		CometBFTP2P:        cmtP2P,
+		HeightProvider:     heightProv,
+		MetricsPublic:      cfg.MetricsPublic,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

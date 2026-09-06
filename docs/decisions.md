@@ -359,3 +359,19 @@ Heartbeats stay off-chain so consensus is not flooded every few seconds.
 **Rationale**: PROJECT_SUMMARY positions UI + structured state as the primary interface. Embedding keeps the operator path identical to the hardened API. Minimal stack matches "ship working increments" and easy review.
 
 **Status**: Accepted
+
+
+---
+
+## 2026-09-05 – Phase 5 hardening (metrics, health, drain, version)
+
+**Decision**: Ship a **permissioned hardening** increment without opening permissionless mode or live migration:
+
+1. **Metrics**: Prometheus text exposition via `prometheus/client_golang` on an isolated registry at `GET /metrics` (+ `/v1/metrics`). Default **API-token gated**; optional `--metrics-public` for scrape (document exposure).
+2. **Health**: Expand `/health` with engine, live flag, ledger summary, optional consensus height; add auth-gated `/v1/ready` and `/v1/version` (ldflags + `runtime/debug`).
+3. **Drain**: Reuse ledger `Status=Draining` as scheduling-disabled. Cordon/uncordon/drain HTTP + `nexusctl` + UI. Heartbeats preserve Draining. Evacuate = reconciler reschedule for workload replicas + Phase 4 cold migrate for standalone containers. No new membership field; no consensus cordon tx in this increment.
+4. **Docs**: `docs/phase5-hardening.md`; roadmap/README/operator-ui updates.
+
+**Rationale**: Operators need observability and safe node evacuation before any permissionless experiment. CometBFT-only and cold-only constraints keep the control plane narrow. Token-gated metrics match the existing security bar; `--metrics-public` is an explicit scrape escape hatch.
+
+**Status**: Accepted

@@ -48,11 +48,11 @@ Static `/ui/*` routes do **not** require the bearer token (so the shell can load
 
 | View | API used |
 |------|---------|
-| Dashboard | `GET /health`, `/v1/node`, `/v1/nodes`, `/v1/members`, `/v1/peers`, `/v1/ledger` |
+| Dashboard | `GET /health`, `/v1/node`, `/v1/nodes`, `/v1/members`, `/v1/peers`, `/v1/ledger`, `/v1/version`; node cordon/drain/uncordon |
 | Containers | `GET/POST /v1/containers`, stop/remove; ledger placement from `/v1/ledger` |
 | Workloads | list/create/scale/update/delete via `/v1/workloads*`; replica placement from ledger containers |
 | Migrations | list + propose cold migrate via `/v1/migrations` (Phase 4 only — no live migration UI) |
-| Settings | local connection config |
+| Settings | local connection config + build version from `/v1/version` |
 
 ## Security model
 
@@ -73,3 +73,9 @@ Unchanged from the coordinator bar:
 - YAML-first workflows
 - Heavy SPA framework / npm build
 - Baking operator credentials into images
+
+## Phase 5 UI hooks
+
+- Dashboard shows version/commit and **Draining** counts; Nodes table offers Cordon / Drain / Uncordon.
+- Settings shows `GET /v1/version` (version, commit, Go, module).
+- See `docs/phase5-hardening.md`.

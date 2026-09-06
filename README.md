@@ -8,7 +8,8 @@ The shared ledger tracks **container image integrity** and **which containers ru
 
 Native orchestration exists, but it is secondary to the distributed OS foundation.
 
-> **Status**: Phase 2 **FROZEN** + **Phase 3 workloads** + **Phase 4 cold migration (incremental)**. Permissioned peer ledger sync, required join-token + API token + TLS. **Consensus engine is CometBFT only** (in-process) — see [docs/cometbft-spike.md](docs/cometbft-spike.md). Declarative workloads — see [docs/phase3-orchestration.md](docs/phase3-orchestration.md). Cold migration (mock + CRIU capability hook) — see [docs/phase4-migration.md](docs/phase4-migration.md). Embedded **operator UI** at `/ui/` — see [docs/operator-ui.md](docs/operator-ui.md). Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
+> **Status**: Phase 2 **FROZEN** + **Phase 3 workloads** + **Phase 4 cold migration (incremental)**. Permissioned peer ledger sync, required join-token + API token + TLS. **Consensus engine is CometBFT only** (in-process) — see [docs/cometbft-spike.md](docs/cometbft-spike.md). Declarative workloads — see [docs/phase3-orchestration.md](docs/phase3-orchestration.md). Cold migration — see [docs/phase4-migration.md](docs/phase4-migration.md). Metrics / rich health / version / node drain — see [docs/phase5-hardening.md](docs/phase5-hardening.md). Embedded **operator UI** at `/ui/` — see [docs/operator-ui.md](docs/operator-ui.md)
+- [Phase 5 hardening](docs/phase5-hardening.md). Phase 1 single-node path remains the local runtime (mock by default). **Post-freeze**: Debian Bookworm minimal node image tooling (`image/`, see [docs/node-image.md](docs/node-image.md)).
 
 ---
 
@@ -72,6 +73,7 @@ https://127.0.0.1:8080/ui/
 
 ```bash
 ./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure health
+./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure version
 ./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure node
 ./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure images pull docker.io/library/nginx:alpine
 ./bin/nexusctl --api https://127.0.0.1:8080 --token secret --insecure containers start docker.io/library/nginx:alpine --name web

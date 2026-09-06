@@ -129,6 +129,9 @@ func mergeNode(local, remote NodeRecord) NodeRecord {
 		out.Labels = unionLabels(local.Labels, remote.Labels)
 		if local.Status == StatusOffline || remote.Status == StatusOffline {
 			out.Status = StatusOffline
+		} else if local.Status == StatusDraining || remote.Status == StatusDraining {
+			// Scheduling disabled must stick across peers at equal heartbeat.
+			out.Status = StatusDraining
 		}
 		if out.PublicKey == "" {
 			out.PublicKey = remote.PublicKey

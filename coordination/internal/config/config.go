@@ -54,6 +54,9 @@ type Config struct {
 	// CometBFTGenesisFrom is a seed coordinator URL; when set, fetch shared
 	// genesis (+ peer hint) via GET /v1/cometbft/bootstrap before starting CometBFT.
 	CometBFTGenesisFrom string `json:"cometbft_genesis_from"`
+
+	// MetricsPublic exposes GET /metrics without bearer auth (Prometheus scrape).
+	MetricsPublic bool `json:"metrics_public"`
 }
 
 // Default returns a sensible development configuration.

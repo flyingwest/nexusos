@@ -1,6 +1,9 @@
 .PHONY: build run test tidy clean install coordinator nexusctl e2e e2e-workload e2e-workload-multinode e2e-migration image image-devsmoke qemu-smoke qemu-e2e test-provision ui
 
 COORD_DIR := coordination
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LDFLAGS := -X github.com/nexusos/coordination/internal/version.Version=$(VERSION) -X github.com/nexusos/coordination/internal/version.Commit=$(COMMIT)
 
 build: coordinator nexusctl
 
@@ -10,10 +13,10 @@ ui:
 	@echo "operator UI assets OK (embedded at build via go:embed)"
 
 coordinator: ui
-	cd $(COORD_DIR) && go build -o ../bin/coordinator ./cmd/coordinator
+	cd $(COORD_DIR) && go build -ldflags "$(LDFLAGS)" -o ../bin/coordinator ./cmd/coordinator
 
 nexusctl:
-	cd $(COORD_DIR) && go build -o ../bin/nexusctl ./cmd/nexusctl
+	cd $(COORD_DIR) && go build -ldflags "$(LDFLAGS)" -o ../bin/nexusctl ./cmd/nexusctl
 
 # Local smoke: --dev auto-generates self-signed TLS and relaxes empty-token rejection.
 run: coordinator

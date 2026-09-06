@@ -9,6 +9,7 @@ require (
 	github.com/containerd/containerd v1.7.20
 	github.com/google/uuid v1.6.0
 	github.com/opencontainers/runtime-spec v1.1.0
+	github.com/prometheus/client_golang v1.21.0
 	github.com/spf13/cobra v1.9.1
 )
 
@@ -84,7 +85,6 @@ require (
 	github.com/petermattis/goid v0.0.0-20250813065127-a731cc31b4fe // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_golang v1.21.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
