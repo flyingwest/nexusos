@@ -1,6 +1,6 @@
 [Unit]
 Description=NexusOS Coordination Service
-Documentation=https://github.com/flyingwest/nexusos-phase2
+Documentation=https://github.com/flyingwest/nexusos
 After=network-online.target containerd.service
 Wants=network-online.target
 

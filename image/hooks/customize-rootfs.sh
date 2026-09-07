@@ -49,7 +49,7 @@ ENV
   cat > "$ROOTFS/etc/systemd/system/nexusos-coordinator.service" <<'UNIT'
 [Unit]
 Description=NexusOS Coordination Service (DEV SMOKE)
-Documentation=https://github.com/flyingwest/nexusos-phase2
+Documentation=https://github.com/flyingwest/nexusos
 After=network-online.target containerd.service
 Wants=network-online.target
 Requires=containerd.service
